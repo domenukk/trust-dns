@@ -7,8 +7,9 @@
 
 //! resource record implementation
 
-use std::{cmp::Ordering, convert::TryFrom, fmt};
+use core::{cmp::Ordering, convert::TryFrom, fmt};
 
+use alloc::borrow::ToOwned;
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 
@@ -839,8 +840,8 @@ impl<'a, R: RecordData> TryFrom<&'a Record> for RecordRef<'a, R> {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+    use alloc::str::FromStr;
     use std::cmp::Ordering;
-    use std::str::FromStr;
 
     use super::*;
     use crate::rr::dns_class::DNSClass;

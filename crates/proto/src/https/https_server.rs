@@ -7,9 +7,9 @@
 
 //! HTTPS related server items
 
+use alloc::str::FromStr;
+use alloc::sync::Arc;
 use std::fmt::Debug;
-use std::str::FromStr;
-use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use futures_util::stream::{Stream, StreamExt};
@@ -93,9 +93,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
     use futures_executor::block_on;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
 
     use crate::https::request;
     use crate::op::Message;

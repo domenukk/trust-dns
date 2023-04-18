@@ -15,7 +15,7 @@
  */
 
 //! service records for identify port mapping for specific services on a host
-use std::str::FromStr;
+use alloc::str::FromStr;
 
 use crate::rr::domain::Name;
 use crate::rr::rdata::SRV;

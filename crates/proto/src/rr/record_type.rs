@@ -8,9 +8,10 @@
 //! record type definitions
 #![allow(clippy::use_self)]
 
-use std::cmp::Ordering;
-use std::fmt::{self, Display, Formatter};
-use std::str::FromStr;
+use alloc::str::FromStr;
+use alloc::string::ToString;
+use core::cmp::Ordering;
+use core::fmt::{self, Display, Formatter};
 
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
@@ -189,7 +190,7 @@ impl FromStr for RecordType {
     /// Convert `&str` to `RecordType`
     ///
     /// ```
-    /// use std::str::FromStr;
+    /// use alloc::str::FromStr;
     /// use trust_dns_proto::rr::record_type::RecordType;
     ///
     /// let var: RecordType = RecordType::from_str("A").unwrap();

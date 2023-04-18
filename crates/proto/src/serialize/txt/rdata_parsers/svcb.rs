@@ -7,7 +7,7 @@
 
 //! SVCB records in presentation format
 
-use std::str::FromStr;
+use alloc::str::FromStr;
 
 use crate::{
     rr::{

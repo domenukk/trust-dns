@@ -7,7 +7,7 @@
 
 //! start of authority record defining ownership and defaults for the zone
 
-use std::fmt;
+use core::fmt;
 
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
@@ -361,7 +361,7 @@ mod tests {
 
     #[test]
     fn test() {
-        use std::str::FromStr;
+        use alloc::str::FromStr;
 
         let rdata = SOA::new(
             Name::from_str("m.example.com").unwrap(),

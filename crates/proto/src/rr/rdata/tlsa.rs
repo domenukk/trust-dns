@@ -8,8 +8,9 @@
 //! TLSA records for storing TLS certificate validation information
 #![allow(clippy::use_self)]
 
-use std::fmt;
+use core::fmt;
 
+use alloc::vec::Vec;
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 

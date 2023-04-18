@@ -7,8 +7,9 @@
 
 //! Dynamic Delegation Discovery System
 
-use std::fmt;
+use core::fmt;
 
+use alloc::{boxed::Box, string::String};
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 
@@ -301,7 +302,7 @@ mod tests {
     use super::*;
     #[test]
     fn test() {
-        use std::str::FromStr;
+        use alloc::str::FromStr;
 
         let rdata = NAPTR::new(
             8,
@@ -326,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_bad_data() {
-        use std::str::FromStr;
+        use alloc::str::FromStr;
 
         let rdata = NAPTR::new(
             8,

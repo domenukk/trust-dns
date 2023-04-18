@@ -7,7 +7,7 @@
 
 //! mail exchange, email, record
 
-use std::fmt;
+use core::fmt;
 
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn test() {
-        use std::str::FromStr;
+        use alloc::str::FromStr;
 
         let rdata = MX::new(16, Name::from_str("mail.example.com").unwrap());
 

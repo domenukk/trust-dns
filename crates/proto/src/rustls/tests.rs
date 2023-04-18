@@ -7,6 +7,7 @@
 
 #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+use alloc::sync::Arc;
 use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -15,7 +16,6 @@ use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic;
-use std::sync::Arc;
 use std::{thread, time};
 
 use openssl::pkcs12::*;

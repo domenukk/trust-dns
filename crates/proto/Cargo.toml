@@ -37,6 +37,8 @@ codecov = { repository = "bluejekyll/trust-dns", branch = "main", service = "git
 maintenance = { status = "actively-developed" }
 
 [features]
+std = [] #["futures-channel/std", "futures-io/std", "futures-util/std", "ring/std", "thiserror/std"]
+
 dns-over-tls = []
 dns-over-rustls = ["dns-over-tls", "rustls", "rustls-pemfile", "tokio-rustls", "webpki", "tokio-runtime"]
 dns-over-native-tls = ["dns-over-tls", "native-tls", "tokio-native-tls", "tokio-runtime"]
@@ -55,7 +57,7 @@ testing = []
 
 text-parsing = []
 tokio-runtime = ["tokio/net", "tokio/rt", "tokio/time", "tokio/rt-multi-thread"]
-default = ["tokio-runtime"]
+default = ["tokio-runtime", "std"]
 
 serde-config = ["serde", "url/serde"]
 
@@ -74,49 +76,52 @@ name = "trust_dns_proto"
 path = "src/lib.rs"
 
 [dependencies]
-async-trait.workspace = true
+async-trait = { workspace = true, default-features = false }
 backtrace = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 cfg-if.workspace = true
-data-encoding.workspace = true
+data-encoding = { workspace = true, default-features = false, features = ["alloc"] }
 enum-as-inner.workspace = true
-futures-channel = { workspace = true, default-features = false, features = ["std"] }
-futures-io = { workspace = true, default-features = false, features = ["std"] }
-futures-util = { workspace = true, default-features = false, features = ["std"] }
+futures-channel = { version = "0.3.28", default-features = false, features = ["alloc"]  }
+futures-io = { version = "0.3.28", default-features = false }
+futures-util = { version = "0.3.28", default-features = false, features = ["alloc"] }
 h2 = { workspace = true, features = ["stream"], optional = true }
 http = { workspace = true, optional = true }
-idna.workspace = true
-ipnet.workspace = true
+idna = { workspace = true, default-features = false, features = ["alloc"] }
+ipnet = { git = "https://github.com/domenukk/ipnet.git", rev = "5828e6b", default-features = false }
 js-sys = { workspace = true, optional = true }
-lazy_static.workspace = true
+lazy_static = { workspace = true, features = ["spin_no_std"] }
 native-tls = { workspace = true, optional = true }
 openssl = { workspace = true, features = ["v102", "v110"], optional = true }
 quinn = { workspace = true, optional = true }
 quinn-udp = {workspace = true, optional = true}
-rand.workspace = true
-ring = { workspace = true, optional = true, features = ["std"] }
+rand = { workspace = true, default-features = false, features = ["alloc", "std_rng"] }
+ring = { workspace = true, optional = true, default-features = false }
 rustls = { workspace = true, optional = true }
 rustls-pemfile = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 smallvec.workspace = true
 socket2 = { workspace = true, optional = true }
-thiserror.workspace = true
+thiserror = { version = "1.0", package = "thiserror-core", default-features = false }
 tinyvec = { workspace = true, features = ["alloc"] }
-tracing.workspace = true
+tracing = { version = "0.1.37", default-features = false }
 tokio = { workspace = true, features = ["io-util"], optional = true }
 tokio-native-tls = { workspace = true, optional = true }
 tokio-openssl = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true, features = ["early-data"] }
-url.workspace = true
+url = { workspace = true, default-features = false, features = ["alloc"] }
 wasm-bindgen-crate = { workspace = true, optional = true, package = "wasm-bindgen" }
 webpki = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
+once_cell = { version = "1.17.1", default-features = false, features = ["critical-section"] }
+critical-section = "1.1.1"
+const-random = "0.1.15"
 
 [dev-dependencies]
-futures-executor = { workspace = true, default-features = false, features = ["std"] }
-openssl = { workspace = true, features = ["v102", "v110"] }
-tokio = { workspace = true, features = ["rt", "time", "macros"] }
-tracing-subscriber = { workspace = true, features = ["std", "fmt", "env-filter"] }
+#futures-executor = { workspace = true, default-features = false, features = ["std"] }
+#openssl = { workspace = true, features = ["v102", "v110"] }
+#tokio = { workspace = true, features = ["rt", "time", "macros"] }
+#tracing-subscriber = { workspace = true, features = ["std", "fmt", "env-filter"] }
 
 [package.metadata.docs.rs]
 all-features = true

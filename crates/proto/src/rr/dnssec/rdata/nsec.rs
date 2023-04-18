@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test() {
         use crate::rr::RecordType;
-        use std::str::FromStr;
+        use alloc::str::FromStr;
 
         let rdata = NSEC::new(
             Name::from_str("www.example.com").unwrap(),

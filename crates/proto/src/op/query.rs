@@ -16,8 +16,7 @@
 
 //! Query struct for looking up resource records
 
-use std::fmt;
-use std::fmt::{Display, Formatter};
+use core::fmt::{self, Display, Formatter};
 
 use crate::error::*;
 use crate::rr::dns_class::DNSClass;

@@ -5,7 +5,12 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#[cfg(not(feature = "std"))]
+use core::net::IpAddr;
+#[cfg(feature = "std")]
 use std::net::IpAddr;
+
+use alloc::string::String;
 
 use crate::rr::{Name, RData};
 

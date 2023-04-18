@@ -136,7 +136,7 @@ mod tests {
     use crate::rr::dnssec::rdata::DS;
     use crate::rr::domain::Name;
     use crate::rr::rdata::*;
-    use std::str::FromStr;
+    use alloc::str::FromStr;
 
     #[test]
     fn test_a() {

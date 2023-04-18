@@ -6,8 +6,9 @@
 // copied, modified, or distributed except according to those terms.
 
 //! null record type, generally not used except as an internal tool for representing null data
-use std::fmt;
+use core::fmt;
 
+use alloc::vec::Vec;
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 

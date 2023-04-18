@@ -7,9 +7,9 @@
 
 //! Base TlsStream
 
+use core::pin::Pin;
 use std::io;
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::{future::Future, marker::PhantomData};
 
 use futures_util::TryFutureExt;

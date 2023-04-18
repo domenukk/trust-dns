@@ -9,9 +9,11 @@
 #![allow(deprecated, clippy::use_self)] // allows us to deprecate RData types
 
 #[cfg(test)]
-use std::convert::From;
-use std::{cmp::Ordering, fmt, net::IpAddr};
+use core::convert::From;
+use core::net::IpAddr;
+use core::{cmp::Ordering, fmt};
 
+use alloc::vec::Vec;
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 
@@ -1079,7 +1081,7 @@ impl Ord for RData {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
-    use std::str::FromStr;
+    use alloc::str::FromStr;
 
     use super::*;
     use crate::rr::domain::Name;

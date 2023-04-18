@@ -6,7 +6,7 @@
 // copied, modified, or distributed except according to those terms.
 
 //! service records for identify port mapping for specific services on a host
-use std::fmt;
+use core::fmt;
 
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn test() {
-        use std::str::FromStr;
+        use alloc::str::FromStr;
 
         let rdata = SRV::new(1, 2, 3, Name::from_str("_dns._tcp.example.com").unwrap());
 

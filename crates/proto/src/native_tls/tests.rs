@@ -12,6 +12,7 @@
     clippy::single_component_path_imports
 )]
 
+use alloc::sync::Arc;
 use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -20,7 +21,6 @@ use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic;
-use std::sync::Arc;
 use std::{thread, time};
 
 use futures_util::stream::StreamExt;

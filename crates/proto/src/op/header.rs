@@ -7,7 +7,7 @@
 
 //! Message metadata
 
-use std::{convert::From, fmt};
+use core::{convert::From, fmt};
 
 use crate::{
     error::*,

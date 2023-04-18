@@ -5,13 +5,16 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::fmt::{self, Display};
+use core::fmt::{self, Display};
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use core::time::Duration;
+#[cfg(feature = "std")]
 use std::io;
+#[cfg(feature = "std")]
 use std::net::SocketAddr;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use std::time::Duration;
 
+use alloc::boxed::Box;
 #[cfg(feature = "tokio-runtime")]
 use async_trait::async_trait;
 use futures_util::{future::Future, stream::Stream, StreamExt, TryFutureExt};

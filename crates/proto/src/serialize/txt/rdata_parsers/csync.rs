@@ -7,7 +7,7 @@
 
 //! CSYNC record for synchronizing information to the parent zone
 
-use std::str::FromStr;
+use alloc::str::FromStr;
 
 use crate::rr::rdata::CSYNC;
 use crate::rr::RecordType;

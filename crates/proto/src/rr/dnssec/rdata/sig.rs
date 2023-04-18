@@ -638,7 +638,7 @@ mod tests {
 
     #[test]
     fn test() {
-        use std::str::FromStr;
+        use alloc::str::FromStr;
 
         let rdata = SIG::new(
             RecordType::NULL,

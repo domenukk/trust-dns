@@ -31,7 +31,7 @@ trust-dns-proto = { version = "0.22.0", path = "crates/proto" }
 
 
 # logging
-tracing = "0.1.30"
+tracing = { version = "0.1.37", default-features = false }
 tracing-subscriber = "0.3"
 thiserror = "1.0.20"
 
@@ -39,11 +39,11 @@ thiserror = "1.0.20"
 # async/await
 async-recursion = "1.0.0"
 async-trait = "0.1.43"
-futures = "0.3.5"
-futures-channel = "0.3.5"
-futures-executor = "0.3.5"
-futures-io = "0.3.5"
-futures-util = "0.3.5"
+futures = { version = "0.3.5", default-features = false }
+futures-channel = { version = "0.3.5", default-features = false }
+futures-executor = { version = "0.3.5", default-features = false }
+futures-io = { version = "0.3.5", default-features = false }
+futures-util = { version = "0.3.5", default-features = false }
 async-std = "1.6"
 tokio = "1.0"
 tokio-native-tls = "0.3.0"
@@ -75,9 +75,9 @@ bytes = "1"
 cfg-if = "1"
 clap = "4.0"
 console = "0.15.0"
-data-encoding = "2.2.0"
+data-encoding = { version = "2.2.0", default-features = false, features = ["alloc"] }
 enum-as-inner = "0.5"
-idna = "0.3.0"
+idna = { git = "https://github.com/domenukk/rust-url.git", default-features = false, features = ["alloc"], rev = "6d622ab" }
 ipconfig = "0.3.0"
 ipnet = "2.3.0"
 js-sys = "0.3.44"
@@ -86,7 +86,7 @@ libfuzzer-sys = "0.4"
 lru-cache = "0.1.2"
 pin-utils = "0.1.0"
 radix_trie = "0.2.0"
-rand = "0.8"
+rand = { version = "0.8", default-features = false, features = ["std_rng", "alloc"] }
 regex = "1.3.4"
 resolv-conf = "0.7.0"
 rusqlite = "0.28.0"
@@ -96,5 +96,6 @@ socket2 = "0.4.2"
 time = "0.3"
 tinyvec = "1.1.1"
 toml = "0.7"
-url = "2.3.1"
+url = { git = "https://github.com/domenukk/rust-url.git", default-features = false, features = ["alloc", "unstable"], rev = "3efe254" }
+#url = "2.3.1"
 wasm-bindgen-crate = { version = "0.2.58", package = "wasm-bindgen" }

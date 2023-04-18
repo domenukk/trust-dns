@@ -77,7 +77,7 @@ pub(crate) fn parse<'i, I: Iterator<Item = &'i str>>(
 
 #[test]
 fn test_parse() {
-    use std::str::FromStr;
+    use alloc::str::FromStr;
 
     let soa_tokens = vec![
         "trust-dns.org.",

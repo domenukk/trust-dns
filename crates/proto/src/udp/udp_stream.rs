@@ -5,13 +5,16 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use alloc::sync::Arc;
+use core::marker::PhantomData;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+#[cfg(feature = "std")]
 use std::io;
-use std::marker::PhantomData;
+#[cfg(feature = "std")]
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
 
+use alloc::boxed::Box;
 use async_trait::async_trait;
 use futures_util::stream::Stream;
 use futures_util::{future::Future, ready, TryFutureExt};
@@ -91,7 +94,7 @@ pub struct UdpStream<S: Send> {
 /// To implement quinn::AsyncUdpSocket, we need our custom socket capable of getting local address.
 pub trait QuicLocalAddr {
     /// Get local address
-    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr>;
+    fn local_addr(&self) -> core::io::Result<std::net::SocketAddr>;
 }
 
 #[cfg(feature = "tokio-runtime")]

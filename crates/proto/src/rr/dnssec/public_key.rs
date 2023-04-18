@@ -7,7 +7,7 @@
 
 //! Public Key implementations for supported key types
 #[cfg(not(any(feature = "openssl", feature = "ring")))]
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 #[cfg(all(not(feature = "ring"), feature = "openssl"))]
 use openssl::bn::BigNum;

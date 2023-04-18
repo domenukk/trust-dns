@@ -7,8 +7,9 @@
 
 //! HINFO record for storing host information
 
-use std::fmt;
+use core::fmt;
 
+use alloc::{boxed::Box, string::String};
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 

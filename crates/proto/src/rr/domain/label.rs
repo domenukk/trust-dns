@@ -9,14 +9,17 @@
 //!
 //! A label is stored internally as ascii, where all unicode characters are converted to punycode internally.
 
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::borrow::Borrow;
+use core::cmp::{Ordering, PartialEq};
+use core::fmt::{self, Debug, Display, Formatter, Write};
+use core::hash::{Hash, Hasher};
 #[allow(clippy::useless_attribute)]
 #[allow(unused)]
 #[allow(deprecated)]
+#[cfg(feature = "std")]
 use std::ascii::AsciiExt;
-use std::borrow::Borrow;
-use std::cmp::{Ordering, PartialEq};
-use std::fmt::{self, Debug, Display, Formatter, Write};
-use std::hash::{Hash, Hasher};
 use tinyvec::TinyVec;
 
 use idna;
@@ -372,6 +375,9 @@ impl IntoLabel for Vec<u8> {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+    #[cfg(feature = "std")]
+    use std::{eprintln, println};
+
     use super::*;
 
     #[test]
@@ -403,6 +409,7 @@ mod tests {
 
     fn assert_panic_label_too_long(error: ProtoResult<Label>, len: usize) {
         // poor man debug since ProtoResult don't implement Partial Eq due to ssl errors.
+        #[cfg(feature = "std")]
         eprintln!("{error:?}");
         assert!(error.is_err());
         match *error.unwrap_err().kind() {

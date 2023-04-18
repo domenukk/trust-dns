@@ -7,8 +7,9 @@
 
 //! CSYNC record for synchronizing data from a child zone to the parent
 
-use std::fmt;
+use core::fmt;
 
+use alloc::vec::Vec;
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 

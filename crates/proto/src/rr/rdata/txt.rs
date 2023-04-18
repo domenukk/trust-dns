@@ -6,9 +6,10 @@
 // copied, modified, or distributed except according to those terms.
 
 //! text records for storing arbitrary data
-use std::fmt;
-use std::slice::Iter;
+use core::fmt;
+use core::slice::Iter;
 
+use alloc::{boxed::Box, string::String, vec::Vec};
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 

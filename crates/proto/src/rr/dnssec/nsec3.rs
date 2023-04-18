@@ -193,7 +193,7 @@ impl From<Nsec3HashAlgorithm> for u8 {
 #[test]
 #[cfg(any(feature = "openssl", feature = "ring"))]
 fn test_hash() {
-    use std::str::FromStr;
+    use alloc::str::FromStr;
 
     let name = Name::from_str("www.example.com").unwrap();
     let salt: Vec<u8> = vec![1, 2, 3, 4];

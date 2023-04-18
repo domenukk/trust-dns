@@ -7,11 +7,11 @@
 
 //! DNS over TLS I/O stream implementation for Rustls
 
+use alloc::sync::Arc;
+use core::pin::Pin;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::Arc;
 
 use rustls::ClientConfig;
 use tokio;

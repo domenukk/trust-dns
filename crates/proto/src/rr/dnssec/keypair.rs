@@ -6,7 +6,7 @@
 // copied, modified, or distributed except according to those terms.
 
 #[cfg(not(feature = "openssl"))]
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 #[cfg(feature = "openssl")]
 use openssl::bn::BigNumContext;
