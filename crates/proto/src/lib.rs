@@ -71,6 +71,7 @@ static SEEDED_RNG: Lazy<Mutex<RefCell<StdRng>>> = Lazy::new(|| {
 pub(crate) use rand::random;
 
 /// Generates a random value on `no_std`.
+#[cfg(not(feature = "std"))]
 pub fn random<T>() -> T
 where
     Standard: Distribution<T>,

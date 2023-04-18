@@ -37,7 +37,7 @@ codecov = { repository = "bluejekyll/trust-dns", branch = "main", service = "git
 maintenance = { status = "actively-developed" }
 
 [features]
-std = [] #["futures-channel/std", "futures-io/std", "futures-util/std", "ring/std", "thiserror/std"]
+std = [] #["futures-channel/std", "futures-io/std", "futures-util/std", "ring/std", "thiserror/std", "url/std", "ipnet/std", "rand/std"]
 
 dns-over-tls = []
 dns-over-rustls = ["dns-over-tls", "rustls", "rustls-pemfile", "tokio-rustls", "webpki", "tokio-runtime"]
@@ -109,7 +109,7 @@ tokio = { workspace = true, features = ["io-util"], optional = true }
 tokio-native-tls = { workspace = true, optional = true }
 tokio-openssl = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true, features = ["early-data"] }
-url = { workspace = true, default-features = false, features = ["alloc"] }
+url = { workspace = true, default-features = false, features = ["alloc", "unstable"] }
 wasm-bindgen-crate = { workspace = true, optional = true, package = "wasm-bindgen" }
 webpki = { workspace = true, optional = true }
 webpki-roots = { workspace = true, optional = true }
