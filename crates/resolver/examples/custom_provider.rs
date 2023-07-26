@@ -1,18 +1,17 @@
 #![recursion_limit = "128"]
 
-use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::pin::Pin;
 #[cfg(feature = "tokio-runtime")]
-use tokio::net::{TcpStream, UdpSocket};
-use trust_dns_resolver::config::{ResolverConfig, ResolverOpts};
-use trust_dns_resolver::name_server::RuntimeProvider;
-#[cfg(feature = "tokio-runtime")]
-use trust_dns_resolver::proto::iocompat::AsyncIoTokioAsStd;
-#[cfg(feature = "tokio-runtime")]
-use trust_dns_resolver::proto::TokioTime;
-#[cfg(feature = "tokio-runtime")]
-use trust_dns_resolver::{AsyncResolver, TokioHandle};
+use {
+    std::future::Future,
+    std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    std::pin::Pin,
+    tokio::net::{TcpStream, UdpSocket},
+    trust_dns_resolver::config::{ResolverConfig, ResolverOpts},
+    trust_dns_resolver::name_server::{ConnectionProvider, GenericConnector, RuntimeProvider},
+    trust_dns_resolver::proto::iocompat::AsyncIoTokioAsStd,
+    trust_dns_resolver::proto::TokioTime,
+    trust_dns_resolver::{AsyncResolver, TokioHandle},
+};
 
 #[cfg(feature = "tokio-runtime")]
 #[derive(Clone, Default)]
@@ -58,7 +57,7 @@ impl RuntimeProvider for PrintProvider {
 }
 
 #[cfg(feature = "tokio-runtime")]
-async fn lookup_test<R: RuntimeProvider>(resolver: AsyncResolver<R>) {
+async fn lookup_test<R: ConnectionProvider>(resolver: AsyncResolver<R>) {
     let response = resolver.lookup_ip("www.example.com.").await.unwrap();
 
     // There can be many addresses associated with the name,
@@ -82,9 +81,8 @@ async fn main() {
     let resolver = AsyncResolver::new(
         ResolverConfig::google(),
         ResolverOpts::default(),
-        PrintProvider::default(),
-    )
-    .unwrap();
+        GenericConnector::new(PrintProvider::default()),
+    );
     lookup_test(resolver).await;
 
     #[cfg(feature = "dns-over-https-rustls")]
@@ -92,9 +90,8 @@ async fn main() {
         let resolver2 = AsyncResolver::new(
             ResolverConfig::cloudflare_https(),
             ResolverOpts::default(),
-            PrintProvider::default(),
-        )
-        .unwrap();
+            GenericConnector::new(PrintProvider::default()),
+        );
         lookup_test(resolver2).await;
     }
 
@@ -104,4 +101,9 @@ async fn main() {
 #[cfg(not(feature = "tokio-runtime"))]
 fn main() {
     println!("tokio-runtime feature must be enabled")
+}
+
+#[test]
+fn test_custom_provider() {
+    main()
 }

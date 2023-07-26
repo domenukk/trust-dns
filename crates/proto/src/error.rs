@@ -20,7 +20,7 @@ use alloc::string::{String, ToString};
 pub use backtrace::Backtrace as ExtBacktrace;
 use enum_as_inner::EnumAsInner;
 #[cfg(feature = "backtrace")]
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use thiserror::Error;
 
 use crate::op::Header;
@@ -30,16 +30,14 @@ use crate::rr::dnssec::rdata::tsig::TsigAlgorithm;
 use crate::rr::{Name, RecordType};
 use crate::serialize::binary::DecodeError;
 
+/// Boolean for checking if backtrace is enabled at runtime
 #[cfg(feature = "backtrace")]
 #[cfg_attr(docsrs, doc(cfg(feature = "backtrace")))]
-lazy_static! {
-    /// Boolean for checking if backtrace is enabled at runtime
-    pub static ref ENABLE_BACKTRACE: bool = {
-        use std::env;
-        let bt = env::var("RUST_BACKTRACE");
-        matches!(bt.as_ref().map(|s| s as &str), Ok("full") | Ok("1"))
-    };
-}
+pub static ENABLE_BACKTRACE: Lazy<bool> = Lazy::new(|| {
+    use std::env;
+    let bt = env::var("RUST_BACKTRACE");
+    matches!(bt.as_ref().map(|s| s as &str), Ok("full") | Ok("1"))
+});
 
 /// Generate a backtrace
 ///

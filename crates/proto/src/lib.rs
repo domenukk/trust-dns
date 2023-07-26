@@ -30,7 +30,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(not(feature = "std"), feature(error_in_core))]
 #![cfg_attr(not(feature = "std"), feature(ip_in_core))]
-#![cfg_attr(not(feature = "std"), feature(btree_drain_filter))]
+//#![cfg_attr(not(feature = "std"), feature(btree_drain_filter))]
 //! Trust-DNS Protocol library
 
 #[cfg(feature = "std")]

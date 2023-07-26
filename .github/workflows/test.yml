@@ -13,7 +13,7 @@ on:
     - cron: "0 3 * * 4"
 
 env:
-  CARGO_MAKE_VERSION: "0.34.0"
+  CARGO_WS_VERSION: "0.2.42"
 
 jobs:
   ## Run all default oriented feature sets across all platforms.
@@ -27,35 +27,47 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: davidB/rust-cargo-make@v1
-        with:
-          version: ${{ env.CARGO_MAKE_VERSION }}
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: extractions/setup-just@v1
 
-      - name: cargo make all-features
-        run: cargo make all-features
-
-      - name: target/kcov cache
-        uses: actions/cache@v3
+      - name: cargo install cargo-workspaces
+        uses: baptiste0928/cargo-install@v2
         with:
-          path: target/kcov
-          key: ${{ runner.os }}-kcov-${{ hashFiles('**/Cargo.toml') }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-kcov-${{ hashFiles('**/Cargo.toml') }}
-            ${{ runner.os }}-kcov
+          crate: cargo-workspaces
+          version: ${{ env.CARGO_WS_VERSION }}
 
-      - name: cargo make coverage
-        run: cargo make coverage --env="FEATURES=--all-features"
+      - name: just all-features
+        run: just all-features
+
+  ## Run all default oriented feature sets across all platforms.
+  code-coverage:
+    name: coverage
+    needs: platform-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+      
+      - uses: extractions/setup-just@v1
+
+      - name: cargo install cargo-llvm-cov
+        uses: baptiste0928/cargo-install@v2
+        with:
+          crate: cargo-llvm-cov
+
+      - name: just coverage
+        run: just coverage
 
       - name: upload coverage
-        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+          #files: target/llvm-cov-target/trust-dns-coverage.json
 
   ## Work through all of the variations of the different features, only on linux to save concurrent resources
   exhaustive-features-matrix:
@@ -68,7 +80,7 @@ jobs:
         #   feature: [default-features, no-default-features, dns-over-rustls, dns-over-https-rustls, dns-over-native-tls, dns-over-openssl, dnssec-openssl, dnssec-ring, mdns, async-std]
         feature:
           [
-            default-features,
+            default,
             no-default-features,
             dns-over-rustls,
             dns-over-https-rustls,
@@ -76,40 +88,22 @@ jobs:
             dns-over-native-tls,
             dnssec-openssl,
             dnssec-ring,
-            mdns,
-            async-std,
           ]
     steps:
       - uses: actions/checkout@v3
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: davidB/rust-cargo-make@v1
-        with:
-          version: ${{ env.CARGO_MAKE_VERSION }}
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: extractions/setup-just@v1
 
-      - name: cargo make
-        run: cargo make ${{ matrix.feature }}
-
-      - name: target/kcov cache
-        uses: actions/cache@v3
+      - name: cargo install cargo-workspaces
+        uses: baptiste0928/cargo-install@v2
         with:
-          path: target/kcov
-          key: ${{ runner.os }}-kcov-${{ hashFiles('**/Cargo.toml') }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-kcov-${{ hashFiles('**/Cargo.toml') }}
-            ${{ runner.os }}-kcov
+          crate: cargo-workspaces
+          version: ${{ env.CARGO_WS_VERSION }}
 
-      - name: cargo make coverage
-        run: cargo make coverage --env=FEATURES="--features ${{ matrix.feature }}"
-
-      - name: upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: just
+        run: just ${{ matrix.feature }}
 
   ## Check past and future versions
   ##   this enforces the minimum version of rust this project works with
@@ -124,21 +118,24 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: ${{ matrix.version }}
-          override: true
-      - uses: davidB/rust-cargo-make@v1
+      
+      - uses: extractions/setup-just@v1
+
+      - name: cargo install cargo-workspaces
+        uses: baptiste0928/cargo-install@v2
         with:
-          version: ${{ env.CARGO_MAKE_VERSION }}
+          crate: cargo-workspaces
+          version: ${{ env.CARGO_WS_VERSION }}
 
-      - name: cargo make no-default-features
-        run: cargo make no-default-features
+      - name: just no-default-features
+        run: just no-default-features
 
-      - name: cargo make build-bench
+      - name: just build-bench
         if: matrix.version == 'nightly'
-        run: cargo make build-bench
+        run: just build-bench
 
   ## Execute the clippy checks
   cleanliness:
@@ -158,25 +155,28 @@ jobs:
             ${{ runner.os }}-cargo-all
             ${{ runner.os }}-cargo
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
           components: rustfmt, clippy
-          override: true
-      - uses: davidB/rust-cargo-make@v1
+      
+      - uses: extractions/setup-just@v1
+
+      - name: cargo install cargo-workspaces
+        uses: baptiste0928/cargo-install@v2
         with:
-          version: ${{ env.CARGO_MAKE_VERSION }}
+          crate: cargo-workspaces
+          version: ${{ env.CARGO_WS_VERSION }}
 
       # Clippy
-      - name: cargo make clippy
-        run: cargo make clippy
+      - name: just clippy
+        run: just clippy
       # Rustfmt
-      - name: cargo make fmt
-        run: cargo make fmt
+      - name: just fmt
+        run: just fmt
       # Audit
       - name: cargo audit
-        run: cargo make audit
+        run: just audit
 
   # Build and run bind to test our compatibility with standard name servers
   compatibility:
@@ -187,23 +187,18 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: davidB/rust-cargo-make@v1
-        with:
-          version: ${{ env.CARGO_MAKE_VERSION }}
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: extractions/setup-just@v1
 
       - name: target/bind cache
         uses: actions/cache@v3
         with:
           path: target/bind
-          key: ${{ runner.os }}-bind-${{ hashFiles('**/Makefile.toml') }}
+          key: ${{ runner.os }}-bind-${{ hashFiles('**/justfile') }}
           restore-keys: |
-            ${{ runner.os }}-bind-${{ hashFiles('**/Makefile.toml') }}
+            ${{ runner.os }}-bind-${{ hashFiles('**/justfile') }}
             ${{ runner.os }}-bind
 
-      - name: cargo make bind-compatibility
-        run: cargo make bind-compatibility
+      - name: just compatibility
+        run: just compatibility

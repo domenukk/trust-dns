@@ -65,6 +65,38 @@ impl ResolverConfig {
         }
     }
 
+    /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google). This limits the registered connections to just TLS lookups
+    ///
+    /// Please see Google's [privacy statement](https://developers.google.com/speed/public-dns/privacy) for important information about what they track, many ISP's track similar information in DNS. To use the system configuration see: `Resolver::from_system_conf` and `AsyncResolver::from_system_conf`
+    ///
+    /// NameServerConfigGroups can be combined to use a set of different providers, see `NameServerConfigGroup` and `ResolverConfig::from_parts`
+    #[cfg(feature = "dns-over-tls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-tls")))]
+    pub fn google_tls() -> Self {
+        Self {
+            // TODO: this should get the hostname and use the basename as the default
+            domain: None,
+            search: vec![],
+            name_servers: NameServerConfigGroup::google_tls(),
+        }
+    }
+
+    /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google). This limits the registered connections to just HTTPS lookups
+    ///
+    /// Please see Google's [privacy statement](https://developers.google.com/speed/public-dns/privacy) for important information about what they track, many ISP's track similar information in DNS. To use the system configuration see: `Resolver::from_system_conf` and `AsyncResolver::from_system_conf`
+    ///
+    /// NameServerConfigGroups can be combined to use a set of different providers, see `NameServerConfigGroup` and `ResolverConfig::from_parts`
+    #[cfg(feature = "dns-over-https")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+    pub fn google_https() -> Self {
+        Self {
+            // TODO: this should get the hostname and use the basename as the default
+            domain: None,
+            search: vec![],
+            name_servers: NameServerConfigGroup::google_https(),
+        }
+    }
+
     /// Creates a default configuration, using `1.1.1.1`, `1.0.0.1` and `2606:4700:4700::1111`, `2606:4700:4700::1001` (thank you, Cloudflare).
     ///
     /// Please see: <https://www.cloudflare.com/dns/>
@@ -603,11 +635,40 @@ impl NameServerConfigGroup {
         )
     }
 
+    /// Configure a NameServer address and port for DNS-over-QUIC
+    ///
+    /// This will create a QUIC connections.
+    #[cfg(feature = "dns-over-quic")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-quic")))]
+    pub fn from_ips_quic(
+        ips: &[IpAddr],
+        port: u16,
+        tls_dns_name: String,
+        trust_negative_responses: bool,
+    ) -> Self {
+        Self::from_ips_encrypted(
+            ips,
+            port,
+            tls_dns_name,
+            Protocol::Quic,
+            trust_negative_responses,
+        )
+    }
+
     /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google).
     ///
     /// Please see Google's [privacy statement](https://developers.google.com/speed/public-dns/privacy) for important information about what they track, many ISP's track similar information in DNS. To use the system configuration see: `Resolver::from_system_conf` and `AsyncResolver::from_system_conf`
     pub fn google() -> Self {
         Self::from_ips_clear(GOOGLE_IPS, 53, true)
+    }
+
+    /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google). This limits the registered connections to just TLS lookups
+    ///
+    /// Please see Google's [privacy statement](https://developers.google.com/speed/public-dns/privacy) for important information about what they track, many ISP's track similar information in DNS. To use the system configuration see: `Resolver::from_system_conf` and `AsyncResolver::from_system_conf`
+    #[cfg(feature = "dns-over-tls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-tls")))]
+    pub fn google_tls() -> Self {
+        Self::from_ips_tls(GOOGLE_IPS, 853, "dns.google".to_string(), true)
     }
 
     /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google). This limits the registered connections to just HTTPS lookups
@@ -858,6 +919,8 @@ pub struct ResolverOpts {
     pub recursion_desired: bool,
     /// This is true by default, disabling this is useful for requesting single records, but may prevent successful resolution.
     pub authentic_data: bool,
+    /// Shuffle DNS servers before each query.
+    pub shuffle_dns_servers: bool,
 }
 
 impl Default for ResolverOpts {
@@ -889,6 +952,7 @@ impl Default for ResolverOpts {
             server_ordering_strategy: ServerOrderingStrategy::default(),
             recursion_desired: true,
             authentic_data: false,
+            shuffle_dns_servers: false,
         }
     }
 }

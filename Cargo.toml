@@ -10,24 +10,29 @@ members = [
     "util",
     "tests/compatibility-tests",
     "tests/integration-tests",
-    "fuzz",
 ]
 
 exclude = ["fuzz"]
 
-[patch.crates-io]
-# tokio = { path = "../tokio/tokio" }
-# mio = { git = "https://github.com/tokio-rs/mio.git" }
-# h2 = { git = "https://github.com/hyperium/h2.git" }
+[workspace.package]
+version = "0.23.0-alpha.4"
+authors = ["The contributors to Trust-DNS"]
+edition = "2021"
+rust-version = "1.64.0"
+homepage = "https://trust-dns.org/"
+repository = "https://github.com/bluejekyll/trust-dns"
+keywords = ["DNS", "BIND", "dig", "named", "dnssec"]
+categories = ["network-programming"]
+license = "MIT OR Apache-2.0"
 
 
 [workspace.dependencies]
 # trustdns
-trust-dns-client = { version = "0.22.0", path = "crates/client" }
-trust-dns-recursor = { version = "0.22.0", path = "crates/recursor" }
-trust-dns-resolver = { version = "0.22.0", path = "crates/resolver" }
-trust-dns-server = { version = "0.22.0", path = "crates/server" }
-trust-dns-proto = { version = "0.22.0", path = "crates/proto" }
+trust-dns-client = { version = "0.23.0-alpha.4", path = "crates/client", default-features = false }
+trust-dns-recursor = { version = "0.23.0-alpha.4", path = "crates/recursor", default-features = false }
+trust-dns-resolver = { version = "0.23.0-alpha.4", path = "crates/resolver", default-features = false }
+trust-dns-server = { version = "0.23.0-alpha.4", path = "crates/server", default-features = false }
+trust-dns-proto = { version = "0.23.0-alpha.4", path = "crates/proto", default-features = false }
 
 
 # logging
@@ -45,26 +50,25 @@ futures-executor = { version = "0.3.5", default-features = false }
 futures-io = { version = "0.3.5", default-features = false }
 futures-util = { version = "0.3.5", default-features = false }
 async-std = "1.6"
-tokio = "1.0"
+tokio = "1.21"
 tokio-native-tls = "0.3.0"
 tokio-openssl = "0.6.0"
-tokio-rustls = "0.23.0"
+tokio-rustls = "0.24.0"
 parking_lot = "0.12"
 
 
 # ssl
 native-tls = "0.2"
-openssl = "0.10.48"
-rustls = "0.20.0"
+openssl = "0.10.55"
+rustls = "0.21.0"
 rustls-pemfile = "1.0.0"
-webpki = "0.22.0"
-webpki-roots = "0.22.1"
+webpki = { version = "0.100.1", package = "rustls-webpki" }
+webpki-roots = "0.23.0"
 ring = "0.16"
 
 
 # net proto
-quinn = "0.9"
-quinn-udp = "0.3.2"
+quinn = { version = "0.10", default-features = false }
 h2 = "0.3.0"
 http = "0.2"
 
@@ -73,29 +77,33 @@ http = "0.2"
 backtrace = "0.3.50"
 bytes = "1"
 cfg-if = "1"
-clap = "4.0"
+clap = { version = "4.0", default-features = false }
 console = "0.15.0"
 data-encoding = { version = "2.2.0", default-features = false, features = ["alloc"] }
-enum-as-inner = "0.5"
-idna = { git = "https://github.com/domenukk/rust-url.git", default-features = false, features = ["alloc"], rev = "6d622ab" }
+enum-as-inner = "0.6"
+idna = { git="https://github.com/domenukk/rust-url.git", workspace = true, default-features = false, features = ["alloc"], rev = "be73851" }
 ipconfig = "0.3.0"
 ipnet = "2.3.0"
 js-sys = "0.3.44"
-lazy_static = "1.2.0"
-libfuzzer-sys = "0.4"
+once_cell = "1.18.0"
 lru-cache = "0.1.2"
 pin-utils = "0.1.0"
 radix_trie = "0.2.0"
 rand = { version = "0.8", default-features = false, features = ["std_rng", "alloc"] }
 regex = "1.3.4"
 resolv-conf = "0.7.0"
-rusqlite = "0.28.0"
+rusqlite = "0.29.0"
 serde = "1.0"
 smallvec = "1.6"
-socket2 = "0.4.2"
+socket2 = "0.5"
 time = "0.3"
 tinyvec = "1.1.1"
 toml = "0.7"
-url = { git = "https://github.com/domenukk/rust-url.git", default-features = false, features = ["alloc"], rev = "3efe254" }
-#url = "2.3.1"
+url = { git = "https://github.com/domenukk/rust-url.git", default-features = false, features = ["alloc", "unstable"], rev = "be73851" }
+#url = "2.4.0"
 wasm-bindgen-crate = { version = "0.2.58", package = "wasm-bindgen" }
+
+[patch.crates-io]
+# tokio = { path = "../tokio/tokio" }
+# mio = { git = "https://github.com/tokio-rs/mio.git" }
+# h2 = { git = "https://github.com/hyperium/h2.git" }

@@ -12,6 +12,7 @@ use futures_util::{future::select_all, FutureExt};
 use lru_cache::LruCache;
 use parking_lot::Mutex;
 use tracing::{debug, info, warn};
+use trust_dns_resolver::name_server::TokioConnectionProvider;
 
 use crate::{
     proto::{
@@ -24,7 +25,7 @@ use crate::{
         dns_lru::{DnsLru, TtlConfig},
         error::ResolveError,
         lookup::Lookup,
-        name_server::{NameServerPool, TokioRuntimeProvider},
+        name_server::{GenericNameServerPool, TokioRuntimeProvider},
         Name,
     },
     Error, ErrorKind,
@@ -55,7 +56,8 @@ impl Recursor {
         assert!(!roots.is_empty(), "roots must not be empty");
 
         let opts = recursor_opts();
-        let roots = NameServerPool::from_config(roots, &opts, TokioRuntimeProvider::new());
+        let roots =
+            GenericNameServerPool::from_config(roots, &opts, TokioConnectionProvider::default());
         let roots = RecursorPool::from(Name::root(), roots);
         let name_server_cache = Mutex::new(NameServerCache::new(100)); // TODO: make this configurable
         let record_cache = DnsLru::new(100, TtlConfig::default());
@@ -435,10 +437,10 @@ impl Recursor {
         }
 
         // now construct a namesever pool based off the NS and glue records
-        let ns = NameServerPool::from_config(
+        let ns = GenericNameServerPool::from_config(
             config_group,
             &recursor_opts(),
-            TokioRuntimeProvider::new(),
+            TokioConnectionProvider::default(),
         );
         let ns = RecursorPool::from(zone.clone(), ns);
 

@@ -20,7 +20,7 @@ use crate::error::*;
 use crate::lookup;
 use crate::lookup::Lookup;
 use crate::lookup_ip::LookupIp;
-use crate::name_server::TokioRuntimeProvider;
+use crate::name_server::TokioConnectionProvider;
 use crate::AsyncResolver;
 
 /// The Resolver is used for performing DNS queries.
@@ -35,7 +35,7 @@ pub struct Resolver {
     //   drawbacks. One major issues, is if this Resolver is shared across threads, it will cause all to block on any
     //   query. A TLS on the other hand would not, at the cost of only allowing a Resolver to be configured once per Thread
     runtime: Mutex<Runtime>,
-    async_resolver: AsyncResolver<TokioRuntimeProvider>,
+    async_resolver: AsyncResolver<TokioConnectionProvider>,
 }
 
 macro_rules! lookup_fn {
@@ -80,8 +80,8 @@ impl Resolver {
         builder.enable_all();
 
         let runtime = builder.build()?;
-        let async_resolver = AsyncResolver::new(config, options, TokioRuntimeProvider::new())
-            .expect("failed to create resolver");
+        let async_resolver =
+            AsyncResolver::new(config, options, TokioConnectionProvider::default());
 
         Ok(Self {
             runtime: Mutex::new(runtime),
@@ -196,6 +196,7 @@ mod tests {
     #[test]
     #[ignore]
     #[cfg(any(unix, target_os = "windows"))]
+    #[cfg(feature = "system-config")]
     fn test_system_lookup() {
         let resolver = Resolver::from_system_conf().unwrap();
 

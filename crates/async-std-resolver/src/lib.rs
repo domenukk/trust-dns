@@ -55,7 +55,7 @@
 //!   let resolver = resolver(
 //!     config::ResolverConfig::default(),
 //!     config::ResolverOpts::default(),
-//!   ).await.expect("failed to connect resolver");
+//!   ).await;
 //!
 //!   // Lookup the IP addresses associated with a name.
 //!   // This returns a future that will lookup the IP addresses, it must be run in the Core to
@@ -96,7 +96,7 @@
 
 use trust_dns_resolver::AsyncResolver;
 
-use crate::runtime::AsyncStdRuntimeProvider;
+use crate::runtime::AsyncStdConnectionProvider;
 
 mod net;
 mod runtime;
@@ -104,7 +104,6 @@ mod runtime;
 mod tests;
 mod time;
 
-use crate::proto::Executor;
 pub use trust_dns_resolver::config;
 pub use trust_dns_resolver::error::ResolveError;
 pub use trust_dns_resolver::lookup;
@@ -112,7 +111,7 @@ pub use trust_dns_resolver::lookup_ip;
 pub use trust_dns_resolver::proto;
 
 /// An AsyncResolver used with async_std
-pub type AsyncStdResolver = AsyncResolver<AsyncStdRuntimeProvider>;
+pub type AsyncStdResolver = AsyncResolver<AsyncStdConnectionProvider>;
 
 /// Construct a new async-std based `AsyncResolver` with the provided configuration.
 ///
@@ -130,8 +129,8 @@ pub type AsyncStdResolver = AsyncResolver<AsyncStdRuntimeProvider>;
 pub async fn resolver(
     config: config::ResolverConfig,
     options: config::ResolverOpts,
-) -> Result<AsyncStdResolver, ResolveError> {
-    AsyncStdResolver::new(config, options, AsyncStdRuntimeProvider::new())
+) -> AsyncStdResolver {
+    AsyncStdResolver::new(config, options, AsyncStdConnectionProvider::default())
 }
 
 /// Constructs a new async-std based Resolver with the system configuration.
@@ -140,5 +139,5 @@ pub async fn resolver(
 #[cfg(any(unix, target_os = "windows"))]
 #[cfg(feature = "system-config")]
 pub async fn resolver_from_system_conf() -> Result<AsyncStdResolver, ResolveError> {
-    AsyncStdResolver::from_system_conf(AsyncStdRuntimeProvider::new())
+    AsyncStdResolver::from_system_conf(AsyncStdConnectionProvider::default())
 }

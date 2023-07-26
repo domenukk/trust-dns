@@ -28,7 +28,7 @@ use crate::{
     dns_lru::MAX_TTL,
     error::*,
     lookup_ip::LookupIpIter,
-    name_server::{NameServerPool, RuntimeProvider},
+    name_server::{ConnectionProvider, NameServerPool},
     proto::{
         error::ProtoError,
         op::Query,
@@ -185,14 +185,14 @@ impl Iterator for LookupIntoIter {
 /// Different lookup options for the lookup attempts and validation
 #[derive(Clone)]
 #[doc(hidden)]
-pub enum LookupEither<P: RuntimeProvider + Send> {
+pub enum LookupEither<P: ConnectionProvider + Send> {
     Retry(RetryDnsHandle<NameServerPool<P>>),
     #[cfg(feature = "dnssec")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dnssec")))]
     Secure(DnssecDnsHandle<RetryDnsHandle<NameServerPool<P>>>),
 }
 
-impl<P: RuntimeProvider> DnsHandle for LookupEither<P> {
+impl<P: ConnectionProvider> DnsHandle for LookupEither<P> {
     type Response = Pin<Box<dyn Stream<Item = Result<DnsResponse, ResolveError>> + Send>>;
     type Error = ResolveError;
 

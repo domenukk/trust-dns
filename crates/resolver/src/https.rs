@@ -71,7 +71,7 @@ mod tests {
     use tokio::runtime::Runtime;
 
     use crate::config::{ResolverConfig, ResolverOpts};
-    use crate::name_server::TokioRuntimeProvider;
+    use crate::name_server::TokioConnectionProvider;
     use crate::TokioAsyncResolver;
 
     fn https_test(config: ResolverConfig) {
@@ -83,9 +83,8 @@ mod tests {
                 try_tcp_on_error: true,
                 ..ResolverOpts::default()
             },
-            TokioRuntimeProvider::default(),
-        )
-        .expect("failed to create resolver");
+            TokioConnectionProvider::default(),
+        );
 
         let response = io_loop
             .block_on(resolver.lookup_ip("www.example.com."))
@@ -123,6 +122,11 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_google_https() {
+        https_test(ResolverConfig::google_https())
     }
 
     #[test]
