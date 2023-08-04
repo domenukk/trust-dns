@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "async-std-resolver"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "async-std",
  "async-trait",
@@ -485,6 +485,15 @@ name = "data-encoding"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2e66c9d817f1720209181c316d28635c050fa304f9c79e47a520882661b7308"
+
+[[package]]
+name = "drain"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f1a0abf3fcefad9b4dd0e414207a7408e12b68414a01e6bb19b897d5bd7632d"
+dependencies = [
+ "tokio",
+]
 
 [[package]]
 name = "encode_unicode"
@@ -1458,7 +1467,7 @@ checksum = "79ea77c539259495ce8ca47f53e66ae0330a8819f67e23ac96ca02f50e7b7d36"
 dependencies = [
  "log",
  "ring",
- "rustls-webpki 0.101.2",
+ "rustls-webpki",
  "sct",
 ]
 
@@ -1469,16 +1478,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d3987094b1d07b653b7dfdc3f70ce9a1da9c51ac18c1b06b662e4f9a0e9f4b2"
 dependencies = [
  "base64",
-]
-
-[[package]]
-name = "rustls-webpki"
-version = "0.100.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6207cd5ed3d8dca7816f8f3725513a34609c0c765bf652b8c3cb4cfd87db46b"
-dependencies = [
- "ring",
- "untrusted",
 ]
 
 [[package]]
@@ -1953,7 +1952,7 @@ dependencies = [
 
 [[package]]
 name = "trust-dns"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "clap",
  "futures",
@@ -1973,7 +1972,7 @@ dependencies = [
 
 [[package]]
 name = "trust-dns-client"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "cfg-if",
  "data-encoding",
@@ -1985,7 +1984,7 @@ dependencies = [
  "radix_trie",
  "rand",
  "rustls",
- "rustls-webpki 0.100.1",
+ "rustls-webpki",
  "serde",
  "thiserror",
  "tokio",
@@ -1996,7 +1995,7 @@ dependencies = [
 
 [[package]]
 name = "trust-dns-compatibility"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "data-encoding",
  "futures",
@@ -2008,7 +2007,7 @@ dependencies = [
 
 [[package]]
 name = "trust-dns-integration"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "async-trait",
  "futures",
@@ -2031,7 +2030,7 @@ dependencies = [
 
 [[package]]
 name = "trust-dns-proto"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "async-trait",
  "backtrace",
@@ -2057,7 +2056,7 @@ dependencies = [
  "ring",
  "rustls",
  "rustls-pemfile",
- "rustls-webpki 0.100.1",
+ "rustls-webpki",
  "serde",
  "smallvec",
  "socket2 0.5.3",
@@ -2075,7 +2074,7 @@ dependencies = [
 
 [[package]]
 name = "trust-dns-recursor"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -2098,7 +2097,7 @@ dependencies = [
 
 [[package]]
 name = "trust-dns-resolver"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "cfg-if",
  "futures-executor",
@@ -2125,11 +2124,12 @@ dependencies = [
 
 [[package]]
 name = "trust-dns-server"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "async-trait",
  "bytes",
  "cfg-if",
+ "drain",
  "enum-as-inner",
  "futures-executor",
  "futures-util",
@@ -2154,14 +2154,14 @@ dependencies = [
 
 [[package]]
 name = "trust-dns-util"
-version = "0.23.0-alpha.4"
+version = "0.23.0-alpha.5"
 dependencies = [
  "clap",
  "console",
  "data-encoding",
  "openssl",
  "rustls",
- "rustls-webpki 0.100.1",
+ "rustls-webpki",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2336,12 +2336,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "0.23.1"
+version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b03058f88386e5ff5310d9111d53f48b17d732b401aeb83a8d5190f2ac459338"
-dependencies = [
- "rustls-webpki 0.100.1",
-]
+checksum = "c9c6eda1c830a36f361e7721c87fd79ea84293b54f8c48c959f85ec636f0f196"
 
 [[package]]
 name = "widestring"
