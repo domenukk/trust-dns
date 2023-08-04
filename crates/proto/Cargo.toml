@@ -32,35 +32,35 @@ maintenance = { status = "actively-developed" }
 [features]
 std = [] #["futures-channel/std", "futures-io/std", "futures-util/std", "ring/std", "thiserror/std", "url/std", "ipnet/std", "rand/std"]
 
-dns-over-tls = []
-dns-over-rustls = ["dns-over-tls", "rustls", "rustls-pemfile", "tokio-rustls", "webpki", "tokio-runtime"]
-dns-over-native-tls = ["dns-over-tls", "native-tls", "tokio-native-tls", "tokio-runtime"]
-dns-over-openssl = ["dns-over-tls", "openssl", "tokio-openssl", "tokio-runtime"]
+#dns-over-tls = []
+#dns-over-rustls = ["dns-over-tls", "rustls", "rustls-pemfile", "tokio-rustls", "webpki", "tokio-runtime"]
+#dns-over-native-tls = ["dns-over-tls", "native-tls", "tokio-native-tls", "tokio-runtime"]
+#dns-over-openssl = ["dns-over-tls", "openssl", "tokio-openssl", "tokio-runtime"]
 
-dns-over-https-rustls = ["dns-over-https"]
-dns-over-https = ["bytes", "h2", "http", "dns-over-rustls", "webpki-roots", "tokio-runtime"]
+#dns-over-https-rustls = ["dns-over-https"]
+#dns-over-https = ["bytes", "h2", "http", "dns-over-rustls", "webpki-roots", "tokio-runtime"]
 
-dns-over-quic = ["quinn", "rustls/quic", "dns-over-rustls", "bytes", "webpki-roots", "tokio-runtime"]
+#dns-over-quic = ["quinn", "rustls/quic", "dns-over-rustls", "bytes", "webpki-roots", "tokio-runtime"]
 
-dnssec-openssl = ["dnssec", "openssl"]
-dnssec-ring = ["dnssec", "ring"]
-dnssec = []
+#dnssec-openssl = ["dnssec", "openssl"]
+#dnssec-ring = ["dnssec", "ring"]
+#dnssec = []
 
 testing = []
 
 text-parsing = []
-tokio-runtime = ["tokio/net", "tokio/rt", "tokio/time", "tokio/rt-multi-thread"]
-default = ["tokio-runtime", "std"]
+#tokio-runtime = ["tokio/net", "tokio/rt", "tokio/time", "tokio/rt-multi-thread"]
+#default = ["tokio-runtime", "std"]
 
 serde-config = ["serde", "url/serde"]
 
 # enables experimental the mDNS (multicast) feature
-mdns = ["socket2/all"]
+#mdns = ["socket2/all"]
 
 # WARNING: there is a bug in the mutual tls auth code at the moment see issue #100
 # mtls = ["tls"]
 
-wasm-bindgen = ["wasm-bindgen-crate", "js-sys"]
+#wasm-bindgen = ["wasm-bindgen-crate", "js-sys"]
 
 backtrace = ["dep:backtrace"]
 
@@ -80,30 +80,30 @@ futures-io = { version = "0.3.28", default-features = false }
 futures-util = { version = "0.3.28", default-features = false, features = ["alloc"] }
 h2 = { workspace = true, features = ["stream"], optional = true }
 http = { workspace = true, optional = true }
-idna = { git="https://github.com/domenukk/rust-url.git", workspace = true, default-features = false, features = ["alloc"], rev = "be73851" }
+idna = { workspace = true }
 ipnet = { version = "2.8", default-features = false }
-js-sys = { workspace = true, optional = true }
-native-tls = { workspace = true, optional = true }
-openssl = { workspace = true, features = ["v102", "v110"], optional = true }
-quinn = { workspace = true, optional = true, features = ["log", "runtime-tokio", "tls-rustls"] }
+#js-sys = { workspace = true, optional = true }
+#native-tls = { workspace = true, optional = true }
+#openssl = { workspace = true, features = ["v102", "v110"], optional = true }
+#quinn = { workspace = true, optional = true, features = ["log", "runtime-tokio", "tls-rustls"] }
 rand.workspace = true
-ring = { workspace = true, optional = true, features = ["std"] }
-rustls = { workspace = true, optional = true }
-rustls-pemfile = { workspace = true, optional = true }
+#ring = { workspace = true, optional = true, features = ["std"] }
+#rustls = { workspace = true, optional = true }
+#rustls-pemfile = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 smallvec.workspace = true
-socket2 = { workspace = true, optional = true }
+#socket2 = { workspace = true, optional = true }
 thiserror = { version = "1.0", package = "thiserror-core", default-features = false }
 tinyvec = { workspace = true, features = ["alloc"] }
 tracing = { version = "0.1.37", default-features = false }
-tokio = { workspace = true, features = ["io-util"], optional = true }
-tokio-native-tls = { workspace = true, optional = true }
-tokio-openssl = { workspace = true, optional = true }
-tokio-rustls = { workspace = true, optional = true, features = ["early-data"] }
+#tokio = { workspace = true, features = ["io-util"], optional = true }
+#tokio-native-tls = { workspace = true, optional = true }
+#tokio-openssl = { workspace = true, optional = true }
+#tokio-rustls = { workspace = true, optional = true, features = ["early-data"] }
 url.workspace = true
-wasm-bindgen-crate = { workspace = true, optional = true }
-webpki = { workspace = true, optional = true }
-webpki-roots = { workspace = true, optional = true }
+#wasm-bindgen-crate = { workspace = true, optional = true }
+#webpki = { workspace = true, optional = true }
+#webpki-roots = { workspace = true, optional = true }
 once_cell = { version = "1.17.1", default-features = false, features = ["critical-section"] }
 critical-section = "1.1.1"
 const-random = "0.1.15"
