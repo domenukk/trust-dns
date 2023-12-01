@@ -1,8 +1,8 @@
 // Copyright 2015-2022 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! The dns client program
@@ -28,12 +28,12 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 #[cfg(feature = "dns-over-rustls")]
 use rustls::{
     client::{HandshakeSignatureValid, ServerCertVerified},
-    Certificate, ClientConfig, DigitallySignedStruct, OwnedTrustAnchor, RootCertStore,
+    Certificate, ClientConfig, DigitallySignedStruct, RootCertStore,
 };
 use tokio::net::{TcpStream as TokioTcpStream, UdpSocket};
 use tracing::Level;
 
-use trust_dns_client::{
+use hickory_client::{
     client::{AsyncClient, ClientHandle},
     rr::{DNSClass, RData, RecordSet, RecordType},
     serialize::txt::RDataParser,
@@ -41,12 +41,12 @@ use trust_dns_client::{
     udp::UdpClientStream,
 };
 #[cfg(feature = "dns-over-rustls")]
-use trust_dns_proto::rustls::tls_client_connect;
-use trust_dns_proto::{iocompat::AsyncIoTokioAsStd, rr::Name};
+use hickory_proto::rustls::tls_client_connect;
+use hickory_proto::{iocompat::AsyncIoTokioAsStd, rr::Name};
 
-/// A CLI interface for the trust-dns-client.
+/// A CLI interface for the hickory-client.
 ///
-/// This utility directly uses the trust-dns-client to perform actions with a single
+/// This utility directly uses the hickory-client to perform actions with a single
 /// DNS server
 #[derive(Debug, Parser)]
 #[clap(name = "trust dns client", version)]
@@ -63,12 +63,12 @@ struct Opts {
     #[clap(short = 't', long, required_if_eq_any = [("protocol", "tls"), ("protocol", "https"), ("protocol", "quic")])]
     tls_dns_name: Option<String>,
 
-    /// For TLS, HTTPS, and QUIC a custom ALPN code can be supplied
-    ///  
-    /// Defaults: none for TLS (`dot` has been suggested), `h2` for HTTPS, and `doq` for QUIC
+    /// For TLS, HTTPS, QUIC and H3 a custom ALPN code can be supplied
+    ///
+    /// Defaults: none for TLS (`dot` has been suggested), `h2` for HTTPS, `doq` for QUIC, and `h3` for H3
     #[clap(short = 'a',
         long,
-        default_value_ifs = [("protocol", "tls", None), ("protocol", "https", Some("h2")), ("protocol", "quic", Some("doq"))]
+        default_value_ifs = [("protocol", "tls", None), ("protocol", "https", Some("h2")), ("protocol", "quic", Some("doq")), ("protocol", "h3", Some("h3"))]
     )]
     alpn: Option<String>,
 
@@ -114,6 +114,7 @@ enum Protocol {
     Tls,
     Https,
     Quic,
+    H3,
 }
 
 #[derive(Debug, Subcommand)]
@@ -229,7 +230,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    trust_dns_util::logger(env!("CARGO_BIN_NAME"), log_level);
+    hickory_util::logger(env!("CARGO_BIN_NAME"), log_level);
 
     // TODO: need to cleanup all of ClientHandle and the Client in general to make it dynamically usable.
     match opts.protocol {
@@ -238,6 +239,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Protocol::Tls => tls(opts).await?,
         Protocol::Https => https(opts).await?,
         Protocol::Quic => quic(opts).await?,
+        Protocol::H3 => h3(opts).await?,
     };
 
     Ok(())
@@ -285,7 +287,7 @@ async fn tls(opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
         .expect("tls_dns_name is required tls connections");
     println!("; using tls:{nameserver} dns_name:{dns_name}");
 
-    let mut config = tls_config();
+    let mut config = tls_config()?;
     if opts.do_not_verify_nameserver_cert {
         self::do_not_verify_nameserver_cert(&mut config);
     }
@@ -312,7 +314,7 @@ async fn https(_opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "dns-over-https")]
 async fn https(opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
-    use trust_dns_proto::https::HttpsClientStreamBuilder;
+    use hickory_proto::h2::HttpsClientStreamBuilder;
 
     let nameserver = opts.nameserver;
     let alpn = opts
@@ -324,7 +326,7 @@ async fn https(opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
         .expect("tls_dns_name is required https connections");
     println!("; using https:{nameserver} dns_name:{dns_name}");
 
-    let mut config = tls_config();
+    let mut config = tls_config()?;
     if opts.do_not_verify_nameserver_cert {
         self::do_not_verify_nameserver_cert(&mut config);
     }
@@ -351,7 +353,7 @@ async fn quic(_opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "dns-over-quic")]
 async fn quic(opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
-    use trust_dns_proto::quic::{self, QuicClientStream};
+    use hickory_proto::quic::{self, QuicClientStream};
 
     let nameserver = opts.nameserver;
     let alpn = opts
@@ -363,7 +365,7 @@ async fn quic(opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
         .expect("tls_dns_name is required quic connections");
     println!("; using quic:{nameserver} dns_name:{dns_name}");
 
-    let mut config = quic::client_config_tls13_webpki_roots();
+    let mut config = quic::client_config_tls13()?;
     if opts.do_not_verify_nameserver_cert {
         self::do_not_verify_nameserver_cert(&mut config);
     }
@@ -372,6 +374,42 @@ async fn quic(opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
     let mut quic_builder = QuicClientStream::builder();
     quic_builder.crypto_config(config);
     let (client, bg) = AsyncClient::connect(quic_builder.build(nameserver, dns_name)).await?;
+
+    let handle = tokio::spawn(bg);
+    handle_request(opts.class, opts.zone, opts.command, client).await?;
+    drop(handle);
+
+    Ok(())
+}
+
+#[cfg(not(feature = "dns-over-h3"))]
+async fn h3(_opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
+    panic!("`dns-over-h3` feature is required during compilation");
+}
+
+#[cfg(feature = "dns-over-h3")]
+async fn h3(opts: Opts) -> Result<(), Box<dyn std::error::Error>> {
+    use hickory_proto::h3::{self, H3ClientStream};
+
+    let nameserver = opts.nameserver;
+    let alpn = opts
+        .alpn
+        .map(String::into_bytes)
+        .expect("ALPN is required for H3");
+    let dns_name = opts
+        .tls_dns_name
+        .expect("tls_dns_name is required H3 connections");
+    println!("; using h3:{nameserver} dns_name:{dns_name}");
+
+    let mut config = h3::client_config_tls13()?;
+    if opts.do_not_verify_nameserver_cert {
+        self::do_not_verify_nameserver_cert(&mut config);
+    }
+    config.alpn_protocols.push(alpn);
+
+    let mut h3_builder = H3ClientStream::builder();
+    h3_builder.crypto_config(config);
+    let (client, bg) = AsyncClient::connect(h3_builder.build(nameserver, dns_name)).await?;
 
     let handle = tokio::spawn(bg);
     handle_request(opts.class, opts.zone, opts.command, client).await?;
@@ -477,20 +515,43 @@ fn record_set_from(
 }
 
 #[cfg(feature = "dns-over-rustls")]
-fn tls_config() -> ClientConfig {
+fn tls_config() -> Result<ClientConfig, Box<dyn std::error::Error>> {
+    #[cfg_attr(
+        not(any(feature = "native-certs", feature = "webpki-roots")),
+        allow(unused_mut)
+    )]
     let mut root_store = RootCertStore::empty();
-    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(
+    #[cfg(all(feature = "native-certs", not(feature = "webpki-roots")))]
+    {
+        use hickory_proto::error::ProtoErrorKind;
+
+        let (added, ignored) =
+            root_store.add_parsable_certificates(&rustls_native_certs::load_native_certs()?);
+
+        if ignored > 0 {
+            tracing::warn!(
+                "failed to parse {} certificate(s) from the native root store",
+                ignored,
+            );
+        }
+
+        if added == 0 {
+            return Err(ProtoErrorKind::NativeCerts.into());
+        }
+    }
+    #[cfg(feature = "webpki-roots")]
+    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
             ta.subject,
             ta.spki,
             ta.name_constraints,
         )
     }));
 
-    ClientConfig::builder()
+    Ok(ClientConfig::builder()
         .with_safe_defaults()
         .with_root_certificates(root_store)
-        .with_no_client_auth()
+        .with_no_client_auth())
 }
 
 #[cfg(feature = "dns-over-rustls")]

@@ -1,14 +1,15 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! parameters used for the nsec3 hash method
 
 use std::fmt;
 
+use alloc::{string::ToString, vec::Vec};
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 
@@ -272,6 +273,10 @@ impl fmt::Display for NSEC3PARAM {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
+
+    use std::println;
+
+    use alloc::vec::Vec;
 
     use super::*;
 

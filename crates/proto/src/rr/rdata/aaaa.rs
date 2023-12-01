@@ -1,8 +1,8 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! IPv6 address record data
@@ -160,7 +160,7 @@ impl str::FromStr for AAAA {
 
 #[cfg(test)]
 mod tests {
-    use alloc::str::FromStr;
+    use alloc::{str::FromStr, vec::Vec};
 
     use super::*;
     use crate::serialize::binary::bin_tests::{test_emit_data_set, test_read_data_set};

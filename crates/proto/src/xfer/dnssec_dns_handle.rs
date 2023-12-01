@@ -1,14 +1,19 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! The `DnssecDnsHandle` is used to validate all DNS responses for correct DNSSEC signatures.
 
 use std::{clone::Clone, collections::HashSet, error::Error, pin::Pin, sync::Arc};
 
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 use futures_util::{
     future::{self, Future, FutureExt, TryFutureExt},
     stream::{self, Stream, TryStreamExt},
@@ -115,7 +120,7 @@ where
         true
     }
 
-    fn send<R: Into<DnsRequest>>(&mut self, request: R) -> Self::Response {
+    fn send<R: Into<DnsRequest>>(&self, request: R) -> Self::Response {
         let mut request = request.into();
 
         // backstop
@@ -382,8 +387,10 @@ where
     }
 
     // check if any are valid, otherwise return whatever error caused it to fail
-    if verified_rrsets.is_empty() && last_validation_err.is_some() {
-        return Err(last_validation_err.expect("can not be none based on above check"));
+    if verified_rrsets.is_empty() {
+        if let Some(last_validation_err) = last_validation_err {
+            return Err(last_validation_err);
+        }
     }
 
     // validated not none above...
@@ -467,7 +474,7 @@ where
 ///  as a success. Otherwise, a query is sent to get the DS record, and the DNSKEY is validated
 ///  against the DS record.
 async fn verify_dnskey_rrset<H, E>(
-    mut handle: DnssecDnsHandle<H>,
+    handle: DnssecDnsHandle<H>,
     rrset: Rrset,
     options: DnsRequestOptions,
 ) -> Result<Rrset, E>
@@ -715,7 +722,7 @@ where
         .filter_map(|rrsig|rrsig.into_data())
         .map(|sig| {
             let rrset = Arc::clone(&rrset);
-            let mut handle = handle.clone_with_context();
+            let handle = handle.clone_with_context();
 
             handle
                 .lookup(

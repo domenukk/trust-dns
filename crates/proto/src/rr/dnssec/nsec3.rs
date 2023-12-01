@@ -6,7 +6,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +17,8 @@
 
 //! NSEC3 related record types
 #![allow(clippy::use_self)]
+#[cfg(any(feature = "openssl", feature = "ring"))]
+use alloc::{string::String, vec::Vec};
 
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
@@ -41,13 +43,13 @@ use crate::serialize::binary::{BinEncodable, BinEncoder};
 ///    mechanism MUST also be defined.
 ///
 ///    This document updates the IANA registry "DOMAIN NAME SYSTEM
-///    PARAMETERS" (http://www.iana.org/assignments/dns-parameters) in sub-
+///    PARAMETERS" (https://www.iana.org/assignments/dns-parameters) in sub-
 ///    registry "TYPES", by defining two new types.  Section 3 defines the
 ///    NSEC3 RR type 50.  Section 4 defines the NSEC3PARAM RR type 51.
 ///
 ///    This document updates the IANA registry "DNS SECURITY ALGORITHM
 ///    NUMBERS -- per [RFC4035]"
-///    (http://www.iana.org/assignments/dns-sec-alg-numbers).  Section 2
+///    (https://www.iana.org/assignments/dns-sec-alg-numbers).  Section 2
 ///    defines the aliases DSA-NSEC3-SHA1 (6) and RSASHA1-NSEC3-SHA1 (7) for
 ///    respectively existing registrations DSA and RSASHA1 in combination
 ///    with NSEC3 hash algorithm SHA1.
@@ -110,7 +112,7 @@ pub enum Nsec3HashAlgorithm {
 }
 
 impl Nsec3HashAlgorithm {
-    /// <http://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xhtml>
+    /// <https://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xhtml>
     pub fn from_u8(value: u8) -> ProtoResult<Self> {
         match value {
             1 => Ok(Self::SHA1),
@@ -153,6 +155,8 @@ impl Nsec3HashAlgorithm {
     #[cfg(any(feature = "openssl", feature = "ring"))]
     #[cfg_attr(docsrs, doc(cfg(any(feature = "openssl", feature = "ring"))))]
     pub fn hash(self, salt: &[u8], name: &Name, iterations: u16) -> ProtoResult<Digest> {
+        use alloc::vec::Vec;
+
         match self {
             // if there ever is more than just SHA1 support, this should be a genericized method
             Self::SHA1 => {
@@ -193,7 +197,7 @@ impl From<Nsec3HashAlgorithm> for u8 {
 #[test]
 #[cfg(any(feature = "openssl", feature = "ring"))]
 fn test_hash() {
-    use alloc::str::FromStr;
+    use alloc::{str::FromStr, vec::Vec};
 
     let name = Name::from_str("www.example.com").unwrap();
     let salt: Vec<u8> = vec![1, 2, 3, 4];

@@ -1,33 +1,39 @@
 // Copyright 2015-2016 Benjamin Fry
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use core::char;
-use std::iter::Peekable;
-use std::str::Chars;
+use std::borrow::Cow;
+use std::{char, iter::Peekable};
+
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::serialize::txt::errors::{LexerError, LexerErrorKind, LexerResult};
 
 /// A Lexer for Zone files
-pub struct Lexer<'a> {
-    txt: Peekable<Chars<'a>>,
+pub(crate) struct Lexer<'a> {
+    txt: Peekable<CowChars<'a>>,
     state: State,
 }
 
 impl<'a> Lexer<'a> {
     /// Creates a new lexer with the given data to parse
-    pub fn new(txt: &str) -> Lexer<'_> {
+    pub(crate) fn new(txt: impl Into<Cow<'a, str>>) -> Lexer<'a> {
         Lexer {
-            txt: txt.chars().peekable(),
+            txt: CowChars {
+                data: txt.into(),
+                offset: 0,
+            }
+            .peekable(),
             state: State::StartLine,
         }
     }
 
     /// Return the next Token in the string
-    pub fn next_token(&mut self) -> LexerResult<Option<Token>> {
+    pub(crate) fn next_token(&mut self) -> LexerResult<Option<Token>> {
         let mut char_data_vec: Option<Vec<String>> = None;
         let mut char_data: Option<String> = None;
 
@@ -327,7 +333,27 @@ impl<'a> Lexer<'a> {
     }
 
     fn peek(&mut self) -> Option<char> {
-        self.txt.peek().cloned()
+        self.txt.peek().copied()
+    }
+}
+
+struct CowChars<'a> {
+    data: Cow<'a, str>,
+    offset: usize,
+}
+
+impl<'a> Iterator for CowChars<'a> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<char> {
+        let mut iter = self.data[self.offset..].char_indices();
+        let (_, ch) = iter.next()?; // The returned index is always `0`
+        match iter.next() {
+            Some((idx, _)) => self.offset += idx,
+            None => self.offset = self.data.len(),
+        }
+
+        Some(ch)
     }
 }
 
@@ -371,6 +397,8 @@ pub enum Token {
 
 #[cfg(test)]
 mod lex_test {
+    use alloc::string::ToString;
+
     use super::*;
 
     #[allow(clippy::uninlined_format_args)]

@@ -1,23 +1,23 @@
 // Copyright 2015-2021 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 use std::{io, net::SocketAddr, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
-use drain::Watch;
 use futures_util::lock::Mutex;
 use h2::server;
+use hickory_proto::{http::Version, rr::Record};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
-use trust_dns_proto::rr::Record;
 
 use crate::{
     authority::MessageResponse,
-    proto::https::https_server,
+    proto::h2::h2_server,
     server::{
         request_handler::RequestHandler, response_handler::ResponseHandler, server_future,
         Protocol, ResponseInfo,
@@ -29,7 +29,7 @@ pub(crate) async fn h2_handler<T, I>(
     io: I,
     src_addr: SocketAddr,
     dns_hostname: Option<Arc<str>>,
-    shutdown: Watch,
+    shutdown: CancellationToken,
 ) where
     T: RequestHandler,
     I: AsyncRead + AsyncWrite + Unpin,
@@ -59,7 +59,7 @@ pub(crate) async fn h2_handler<T, I>(
                     return;
                 }
             },
-            _ = shutdown.clone().signaled() => {
+            _ = shutdown.cancelled() => {
                 // A graceful shutdown was initiated.
                 return
             },
@@ -70,10 +70,12 @@ pub(crate) async fn h2_handler<T, I>(
         let handler = handler.clone();
         let responder = HttpsResponseHandle(Arc::new(Mutex::new(respond)));
 
-        match https_server::message_from(dns_hostname, request).await {
-            Ok(bytes) => handle_request(bytes, src_addr, handler, responder).await,
-            Err(err) => warn!("error while handling request from {}: {}", src_addr, err),
-        };
+        tokio::spawn(async move {
+            match h2_server::message_from(dns_hostname, request).await {
+                Ok(bytes) => handle_request(bytes, src_addr, handler, responder).await,
+                Err(err) => warn!("error while handling request from {}: {}", src_addr, err),
+            };
+        });
 
         // we'll continue handling requests from here.
     }
@@ -106,8 +108,8 @@ impl ResponseHandler for HttpsResponseHandle {
             impl Iterator<Item = &'a Record> + Send + 'a,
         >,
     ) -> io::Result<ResponseInfo> {
-        use crate::proto::https::response;
-        use crate::proto::https::HttpsError;
+        use crate::proto::h2::HttpsError;
+        use crate::proto::http::response;
         use crate::proto::serialize::binary::BinEncoder;
 
         let mut bytes = Vec::with_capacity(512);
@@ -117,7 +119,7 @@ impl ResponseHandler for HttpsResponseHandle {
             response.destructive_emit(&mut encoder)?
         };
         let bytes = Bytes::from(bytes);
-        let response = response::new(bytes.len())?;
+        let response = response::new(Version::Http2, bytes.len())?;
 
         debug!("sending response: {:#?}", response);
         let mut stream = self

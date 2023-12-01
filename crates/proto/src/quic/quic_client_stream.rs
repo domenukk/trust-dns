@@ -1,11 +1,10 @@
 // Copyright 2015-2022 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::fmt::{Debug, Formatter};
 use std::{
     fmt::{self, Display},
     future::Future,
@@ -16,12 +15,13 @@ use std::{
 };
 
 use futures_util::{future::FutureExt, stream::Stream};
-use quinn::{AsyncUdpSocket, ClientConfig, Connection, Endpoint, TransportConfig, VarInt};
+use quinn::{ClientConfig, Connection, Endpoint, TransportConfig, VarInt};
 use rustls::{version::TLS13, ClientConfig as TlsClientConfig};
 
 use crate::udp::{DnsUdpSocket, QuicLocalAddr};
 use crate::{
     error::ProtoError,
+    quic::quic_socket::QuinnAsyncUdpSocketAdapter,
     quic::quic_stream::{DoqErrorCode, QuicStream},
     udp::UdpSocket,
     xfer::{DnsRequest, DnsRequestSender, DnsResponse, DnsResponseStream},
@@ -148,7 +148,7 @@ impl Stream for QuicClientStream {
 /// A QUIC connection builder for DNS-over-QUIC
 #[derive(Clone)]
 pub struct QuicClientStreamBuilder {
-    crypto_config: TlsClientConfig,
+    crypto_config: Option<TlsClientConfig>,
     transport_config: Arc<TransportConfig>,
     bind_addr: Option<SocketAddr>,
 }
@@ -156,7 +156,7 @@ pub struct QuicClientStreamBuilder {
 impl QuicClientStreamBuilder {
     /// Constructs a new TlsStreamBuilder with the associated ClientConfig
     pub fn crypto_config(&mut self, crypto_config: TlsClientConfig) -> &mut Self {
-        self.crypto_config = crypto_config;
+        self.crypto_config = Some(crypto_config);
         self
     }
 
@@ -237,7 +237,11 @@ impl QuicClientStreamBuilder {
         dns_name: String,
     ) -> Result<QuicClientStream, ProtoError> {
         // ensure the ALPN protocol is set correctly
-        let mut crypto_config = self.crypto_config;
+        let mut crypto_config = if let Some(crypto_config) = self.crypto_config {
+            crypto_config
+        } else {
+            client_config_tls13()?
+        };
         if crypto_config.alpn_protocols.is_empty() {
             crypto_config.alpn_protocols = vec![quic_stream::DOQ_ALPN.to_vec()];
         }
@@ -270,24 +274,47 @@ impl QuicClientStreamBuilder {
 }
 
 /// Default crypto options for quic
-pub fn client_config_tls13_webpki_roots() -> TlsClientConfig {
-    use rustls::{OwnedTrustAnchor, RootCertStore};
+pub fn client_config_tls13() -> Result<TlsClientConfig, ProtoError> {
+    use rustls::RootCertStore;
+    #[cfg_attr(
+        not(any(feature = "native-certs", feature = "webpki-roots")),
+        allow(unused_mut)
+    )]
     let mut root_store = RootCertStore::empty();
-    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(
+    #[cfg(all(feature = "native-certs", not(feature = "webpki-roots")))]
+    {
+        use crate::error::ProtoErrorKind;
+
+        let (added, ignored) =
+            root_store.add_parsable_certificates(&rustls_native_certs::load_native_certs()?);
+
+        if ignored > 0 {
+            tracing::warn!(
+                "failed to parse {} certificate(s) from the native root store",
+                ignored,
+            );
+        }
+
+        if added == 0 {
+            return Err(ProtoErrorKind::NativeCerts.into());
+        }
+    }
+    #[cfg(feature = "webpki-roots")]
+    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
             ta.subject,
             ta.spki,
             ta.name_constraints,
         )
     }));
 
-    TlsClientConfig::builder()
+    Ok(TlsClientConfig::builder()
         .with_safe_default_cipher_suites()
         .with_safe_default_kx_groups()
         .with_protocol_versions(&[&TLS13])
         .expect("TLS 1.3 not supported")
         .with_root_certificates(root_store)
-        .with_no_client_auth()
+        .with_no_client_auth())
 }
 
 impl Default for QuicClientStreamBuilder {
@@ -296,10 +323,8 @@ impl Default for QuicClientStreamBuilder {
         // clients never accept new bidirectional streams
         transport_config.max_concurrent_bidi_streams(VarInt::from_u32(0));
 
-        let client_config = client_config_tls13_webpki_roots();
-
         Self {
-            crypto_config: client_config,
+            crypto_config: None,
             transport_config: Arc::new(transport_config),
             bind_addr: None,
         }
@@ -329,99 +354,5 @@ impl Future for QuicClientResponse {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.0.as_mut().poll(cx).map_err(ProtoError::from)
-    }
-}
-
-/// Wrapper used for quinn::Endpoint::new_with_abstract_socket
-struct QuinnAsyncUdpSocketAdapter<S: DnsUdpSocket + QuicLocalAddr> {
-    io: S,
-}
-
-impl<S: DnsUdpSocket + QuicLocalAddr> Debug for QuinnAsyncUdpSocketAdapter<S> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("Wrapper for quinn::AsyncUdpSocket")
-    }
-}
-
-/// TODO: Naive implementation. Look forward to future improvements.
-impl<S: DnsUdpSocket + QuicLocalAddr + 'static> AsyncUdpSocket for QuinnAsyncUdpSocketAdapter<S> {
-    fn poll_send(
-        &self,
-        _state: &quinn::udp::UdpState,
-        cx: &mut Context<'_>,
-        transmits: &[quinn::udp::Transmit],
-    ) -> Poll<std::io::Result<usize>> {
-        // logics from quinn-udp::fallback.rs
-        let io = &self.io;
-        let mut sent = 0;
-        for transmit in transmits {
-            match io.poll_send_to(cx, &transmit.contents, transmit.destination) {
-                Poll::Ready(ready) => match ready {
-                    Ok(_) => {
-                        sent += 1;
-                    }
-                    // We need to report that some packets were sent in this case, so we rely on
-                    // errors being either harmlessly transient (in the case of WouldBlock) or
-                    // recurring on the next call.
-                    Err(_) if sent != 0 => return Poll::Ready(Ok(sent)),
-                    Err(e) => {
-                        if e.kind() == std::io::ErrorKind::WouldBlock {
-                            return Poll::Ready(Err(e));
-                        }
-
-                        // Other errors are ignored, since they will ususally be handled
-                        // by higher level retransmits and timeouts.
-                        // - PermissionDenied errors have been observed due to iptable rules.
-                        //   Those are not fatal errors, since the
-                        //   configuration can be dynamically changed.
-                        // - Destination unreachable errors have been observed for other
-                        // log_sendmsg_error(&mut self.last_send_error, e, transmit);
-                        sent += 1;
-                    }
-                },
-                Poll::Pending => {
-                    return if sent == 0 {
-                        Poll::Pending
-                    } else {
-                        Poll::Ready(Ok(sent))
-                    }
-                }
-            }
-        }
-        Poll::Ready(Ok(sent))
-    }
-
-    fn poll_recv(
-        &self,
-        cx: &mut Context<'_>,
-        bufs: &mut [std::io::IoSliceMut<'_>],
-        meta: &mut [quinn::udp::RecvMeta],
-    ) -> Poll<std::io::Result<usize>> {
-        // logics from quinn-udp::fallback.rs
-
-        let io = &self.io;
-        let Some(buf) = bufs.get_mut(0)else {
-            return Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::InvalidInput,"no buf")));
-        };
-        match io.poll_recv_from(cx, buf.as_mut()) {
-            Poll::Ready(res) => match res {
-                Ok((len, addr)) => {
-                    meta[0] = quinn::udp::RecvMeta {
-                        len,
-                        stride: len,
-                        addr,
-                        ecn: None,
-                        dst_ip: None,
-                    };
-                    Poll::Ready(Ok(1))
-                }
-                Err(err) => Poll::Ready(Err(err)),
-            },
-            Poll::Pending => Poll::Pending,
-        }
-    }
-
-    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
-        self.io.local_addr()
     }
 }

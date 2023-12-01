@@ -1,8 +1,8 @@
 // Copyright 2015-2016 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -11,7 +11,7 @@ use std::sync::Arc;
 use futures_util::future::FutureExt;
 use futures_util::lock::Mutex;
 use futures_util::stream::Stream;
-use trust_dns_proto::{
+use hickory_proto::{
     error::ProtoError,
     xfer::{DnsHandle, DnsRequest, DnsResponse},
 };
@@ -48,7 +48,7 @@ where
     async fn inner_send(
         request: DnsRequest,
         active_queries: Arc<Mutex<HashMap<Query, RcStream<<H as DnsHandle>::Response>>>>,
-        mut client: H,
+        client: H,
     ) -> impl Stream<Item = Result<DnsResponse, ProtoError>> {
         // TODO: what if we want to support multiple queries (non-standard)?
         let query = request.queries().first().expect("no query!").clone();
@@ -77,7 +77,7 @@ where
     type Response = Pin<Box<dyn Stream<Item = Result<DnsResponse, ProtoError>> + Send>>;
     type Error = ProtoError;
 
-    fn send<R: Into<DnsRequest>>(&mut self, request: R) -> Self::Response {
+    fn send<R: Into<DnsRequest>>(&self, request: R) -> Self::Response {
         let request = request.into();
 
         Box::pin(
@@ -100,7 +100,7 @@ mod test {
 
     use futures::lock::Mutex;
     use futures::*;
-    use trust_dns_proto::{
+    use hickory_proto::{
         error::ProtoError,
         xfer::{DnsHandle, DnsRequest, DnsResponse},
     };
@@ -108,7 +108,7 @@ mod test {
     use crate::client::*;
     use crate::op::*;
     use crate::rr::*;
-    use trust_dns_proto::xfer::FirstAnswer;
+    use hickory_proto::xfer::FirstAnswer;
 
     #[derive(Clone)]
     struct TestClient {
@@ -119,7 +119,7 @@ mod test {
         type Response = Pin<Box<dyn Stream<Item = Result<DnsResponse, ProtoError>> + Send>>;
         type Error = ProtoError;
 
-        fn send<R: Into<DnsRequest> + Send + 'static>(&mut self, request: R) -> Self::Response {
+        fn send<R: Into<DnsRequest> + Send + 'static>(&self, request: R) -> Self::Response {
             let i = Arc::clone(&self.i);
             let future = async {
                 let i = i;
@@ -148,7 +148,7 @@ mod test {
     fn test_memoized() {
         use futures::executor::block_on;
 
-        let mut client = MemoizeClientHandle::new(TestClient {
+        let client = MemoizeClientHandle::new(TestClient {
             i: Arc::new(Mutex::new(0)),
         });
 

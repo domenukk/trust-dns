@@ -1,18 +1,18 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 use std::{net::SocketAddr, time::Instant};
 
 use async_recursion::async_recursion;
 use futures_util::{future::select_all, FutureExt};
+use hickory_resolver::name_server::TokioConnectionProvider;
 use lru_cache::LruCache;
 use parking_lot::Mutex;
 use tracing::{debug, info, warn};
-use trust_dns_resolver::name_server::TokioConnectionProvider;
 
 use crate::{
     proto::{
@@ -50,14 +50,14 @@ impl Recursor {
     ///
     /// This will panic if the roots are empty.
     pub fn new(roots: impl Into<NameServerConfigGroup>) -> Result<Self, ResolveError> {
-        // configure the trust-dns-resolver
+        // configure the hickory-resolver
         let roots: NameServerConfigGroup = roots.into();
 
         assert!(!roots.is_empty(), "roots must not be empty");
 
         let opts = recursor_opts();
         let roots =
-            GenericNameServerPool::from_config(roots, &opts, TokioConnectionProvider::default());
+            GenericNameServerPool::from_config(roots, opts, TokioConnectionProvider::default());
         let roots = RecursorPool::from(Name::root(), roots);
         let name_server_cache = Mutex::new(NameServerCache::new(100)); // TODO: make this configurable
         let record_cache = DnsLru::new(100, TtlConfig::default());
@@ -439,7 +439,7 @@ impl Recursor {
         // now construct a namesever pool based off the NS and glue records
         let ns = GenericNameServerPool::from_config(
             config_group,
-            &recursor_opts(),
+            recursor_opts(),
             TokioConnectionProvider::default(),
         );
         let ns = RecursorPool::from(zone.clone(), ns);

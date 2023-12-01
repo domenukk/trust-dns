@@ -1,8 +1,8 @@
 // Copyright 2015-2021 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! type bit map helper definitions
@@ -46,7 +46,7 @@ pub(crate) fn encode_type_bit_maps(
         let window: u8 = (code >> 8) as u8;
         let low: u8 = (code & 0x00FF) as u8;
 
-        let bit_map: &mut Vec<u8> = hash.entry(window).or_insert_with(Vec::new);
+        let bit_map: &mut Vec<u8> = hash.entry(window).or_default();
         // len + left is the block in the bitmap, divided by 8 for the bits, + the bit in the current_byte
         let index: u8 = low / 8;
         let bit: u8 = 0b1000_0000 >> (low % 8);

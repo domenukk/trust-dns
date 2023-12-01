@@ -1,14 +1,15 @@
 // Copyright 2015-2016 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! Public Key implementations for supported key types
 #[cfg(not(any(feature = "openssl", feature = "ring")))]
 use core::marker::PhantomData;
 
+use alloc::vec::Vec;
 #[cfg(all(not(feature = "ring"), feature = "openssl"))]
 use openssl::bn::BigNum;
 #[cfg(all(not(feature = "ring"), feature = "openssl"))]

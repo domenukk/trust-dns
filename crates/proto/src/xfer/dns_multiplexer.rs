@@ -1,13 +1,13 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! `DnsMultiplexer` and associated types implement the state machines for sending DNS messages while using the underlying streams.
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::sync::Arc;
 #[cfg(feature = "std")]
 use core::borrow::Borrow;
 use core::{
@@ -231,7 +231,9 @@ where
 
     /// Closes all outstanding completes with a closed stream error
     fn stream_closed_close_all(&mut self, error: ProtoError) {
-        debug!(error = error.as_dyn(), stream = %self.stream);
+        debug!(
+            // TODO error = error.as_dyn(),
+            stream = %self.stream);
 
         #[cfg(feature = "std")]
         for (_, active_request) in self.active_requests.drain() {
@@ -381,7 +383,7 @@ where
             Err(e) => {
                 debug!(
                     id = %active_request.request_id(),
-                    error = e.as_dyn(),
+                    //TODO error = e.as_dyn(),
                     "error message"
                 );
                 // complete with the error, don't add to the map of active requests
@@ -447,7 +449,10 @@ where
                             Entry::Vacant(..) => debug!("unexpected request_id: {}", message.id()),
                         },
                         // TODO: return src address for diagnostics
-                        Err(error) => debug!(error = error.as_dyn(), "error decoding message"),
+                        Err(error) => debug!(
+                            // TODO error = error.as_dyn(),
+                            "error decoding message"
+                        ),
                     }
                 }
                 Poll::Ready(err) => {
@@ -489,6 +494,7 @@ mod test {
     use crate::serialize::binary::BinEncodable;
     use crate::xfer::StreamReceiver;
     use crate::xfer::{DnsClientStream, DnsRequestOptions};
+    use alloc::vec::Vec;
     use futures_util::future;
     use futures_util::stream::TryStreamExt;
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};

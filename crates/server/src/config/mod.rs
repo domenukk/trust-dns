@@ -1,15 +1,17 @@
 // Copyright 2015-2018 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! Configuration module for the server binary, `named`.
 
 pub mod dnssec;
 
+#[cfg(feature = "toml")]
 use std::fs::File;
+#[cfg(feature = "toml")]
 use std::io::Read;
 use std::net::{AddrParseError, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
@@ -18,13 +20,13 @@ use std::time::Duration;
 
 use cfg_if::cfg_if;
 use serde::{self, Deserialize};
-use toml;
 
 use crate::proto::error::ProtoResult;
 use crate::proto::rr::Name;
 
 use crate::authority::ZoneType;
-use crate::error::{ConfigError, ConfigResult};
+#[cfg(feature = "toml")]
+use crate::error::ConfigResult;
 use crate::store::StoreConfig;
 
 static DEFAULT_PATH: &str = "/var/named"; // TODO what about windows (do I care? ;)
@@ -32,6 +34,7 @@ static DEFAULT_PORT: u16 = 53;
 static DEFAULT_TLS_PORT: u16 = 853;
 static DEFAULT_HTTPS_PORT: u16 = 443;
 static DEFAULT_QUIC_PORT: u16 = 853; // https://www.ietf.org/archive/id/draft-ietf-dprive-dnsoquic-11.html#name-reservation-of-dedicated-po
+static DEFAULT_H3_PORT: u16 = 443;
 static DEFAULT_TCP_REQUEST_TIMEOUT: u64 = 5;
 
 /// Server configuration
@@ -51,6 +54,8 @@ pub struct Config {
     https_listen_port: Option<u16>,
     /// QUIC port to listen on
     quic_listen_port: Option<u16>,
+    /// HTTP/3 port to listen on
+    h3_listen_port: Option<u16>,
     /// Timeout associated to a request before it is closed.
     tcp_request_timeout: Option<u64>,
     /// Level at which to log, default is INFO
@@ -67,11 +72,18 @@ pub struct Config {
 
 impl Config {
     /// read a Config file from the file specified at path.
+    #[cfg(feature = "toml")]
     pub fn read_config(path: &Path) -> ConfigResult<Self> {
-        let mut file: File = File::open(path)?;
-        let mut toml: String = String::new();
+        let mut file = File::open(path)?;
+        let mut toml = String::new();
         file.read_to_string(&mut toml)?;
-        toml.parse().map_err(Into::into)
+        Self::from_toml(&toml)
+    }
+
+    /// Read a [`Config`] from the given TOML string.
+    #[cfg(feature = "toml")]
+    pub fn from_toml(toml: &str) -> ConfigResult<Self> {
+        Ok(basic_toml::from_str(toml)?)
     }
 
     /// set of listening ipv4 addresses (for TCP and UDP)
@@ -102,6 +114,11 @@ impl Config {
     /// port on which to listen for QUIC connections
     pub fn get_quic_listen_port(&self) -> u16 {
         self.quic_listen_port.unwrap_or(DEFAULT_QUIC_PORT)
+    }
+
+    /// port on which to listen for HTTP/3 connections
+    pub fn get_h3_listen_port(&self) -> u16 {
+        self.h3_listen_port.unwrap_or(DEFAULT_H3_PORT)
     }
 
     /// default timeout for all TCP connections before forcibly shutdown
@@ -142,14 +159,6 @@ impl Config {
                 None
             }
         }
-    }
-}
-
-impl FromStr for Config {
-    type Err = ConfigError;
-
-    fn from_str(toml: &str) -> ConfigResult<Self> {
-        toml::de::from_str(toml).map_err(Into::into)
     }
 }
 

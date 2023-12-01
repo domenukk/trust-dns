@@ -1,8 +1,8 @@
 // Copyright 2015-2019 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! Structs for creating and using a AsyncResolver
@@ -175,6 +175,16 @@ impl<R: ConnectionProvider> AsyncResolver<R> {
     pub fn clear_cache(&self) {
         self.client_cache.clear_cache();
     }
+
+    /// Read the config for this resolver.
+    pub fn config(&self) -> &ResolverConfig {
+        &self.config
+    }
+
+    /// Read the options for this resolver.
+    pub fn options(&self) -> &ResolverOpts {
+        &self.options
+    }
 }
 
 impl<P: ConnectionProvider> AsyncResolver<P> {
@@ -192,7 +202,8 @@ impl<P: ConnectionProvider> AsyncResolver<P> {
     /// documentation for `AsyncResolver` for more information on how to use
     /// the background future.
     pub fn new_with_conn(config: ResolverConfig, options: ResolverOpts, conn_provider: P) -> Self {
-        let pool = NameServerPool::from_config_with_provider(&config, &options, conn_provider);
+        let pool =
+            NameServerPool::from_config_with_provider(&config, options.clone(), conn_provider);
         let either;
         let client = RetryDnsHandle::new(pool, options.attempts);
         if options.validate {
@@ -222,8 +233,8 @@ impl<P: ConnectionProvider> AsyncResolver<P> {
         let lru = DnsLru::new(options.cache_size, dns_lru::TtlConfig::from_opts(&options));
         Self {
             config,
-            options,
             client_cache: CachingClient::with_cache(lru, either, options.preserve_intermediates),
+            options,
             hosts,
         }
     }
@@ -624,7 +635,7 @@ pub mod testing {
         );
 
         // needs to be a domain that exists, but is not signed (eventually this will be)
-        let response = exec.block_on(resolver.lookup_ip("trust-dns.org."));
+        let response = exec.block_on(resolver.lookup_ip("hickory-dns.org."));
 
         assert!(response.is_err());
         let error = response.unwrap_err();
@@ -632,7 +643,7 @@ pub mod testing {
         use proto::error::{ProtoError, ProtoErrorKind};
 
         let error_str = format!("{error}");
-        let name = Name::from_str("trust-dns.org.").unwrap();
+        let name = Name::from_str("hickory-dns.org.").unwrap();
         let expected_str = format!(
             "{}",
             ResolveError::from(ProtoError::from(ProtoErrorKind::RrsigsNotPresent {

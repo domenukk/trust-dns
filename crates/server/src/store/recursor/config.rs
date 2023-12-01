@@ -1,8 +1,8 @@
 // Copyright 2015-2022 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 use std::{
@@ -18,7 +18,7 @@ use serde::Deserialize;
 use crate::error::ConfigError;
 use crate::proto::{
     rr::{RData, Record, RecordSet},
-    serialize::txt::{Lexer, Parser},
+    serialize::txt::Parser,
 };
 use crate::resolver::Name;
 
@@ -44,10 +44,8 @@ impl RecursiveConfig {
         let mut roots_str = String::new();
         roots.read_to_string(&mut roots_str)?;
 
-        let lexer = Lexer::new(&roots_str);
-        let mut parser = Parser::new();
-
-        let (_zone, roots_zone) = parser.parse(lexer, Some(Name::root()))?;
+        let (_zone, roots_zone) =
+            Parser::new(roots_str, Some(path.into_owned()), Some(Name::root())).parse()?;
 
         // TODO: we may want to deny some of the root nameservers, for reasons...
         Ok(roots_zone

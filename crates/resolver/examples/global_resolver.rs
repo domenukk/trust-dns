@@ -1,16 +1,15 @@
 #![recursion_limit = "128"]
 
-#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
 use {
     futures_util::future,
+    hickory_resolver::name_server::TokioConnectionProvider,
+    hickory_resolver::TokioAsyncResolver,
+    hickory_resolver::{IntoName, TryParseIp},
     once_cell::sync::Lazy,
     std::fmt::Display,
     std::io,
     std::net::SocketAddr,
     std::task::Poll,
-    trust_dns_resolver::name_server::TokioConnectionProvider,
-    trust_dns_resolver::TokioAsyncResolver,
-    trust_dns_resolver::{IntoName, TryParseIp},
 };
 
 // This is an example of registering a static global resolver into any system.
@@ -21,7 +20,6 @@ use {
 // Thank you to @zonyitoo for the original example.
 // TODO: this example can probably be made much simpler with the new
 //      `AsyncResolver`.
-#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
 // First we need to setup the global Resolver
 static GLOBAL_DNS_RESOLVER: Lazy<TokioAsyncResolver> = Lazy::new(|| {
     use std::sync::{Arc, Condvar, Mutex};
@@ -51,7 +49,7 @@ static GLOBAL_DNS_RESOLVER: Lazy<TokioAsyncResolver> = Lazy::new(|| {
             #[cfg(not(any(unix, windows)))]
             {
                 // Directly reference the config types
-                use trust_dns_resolver::config::{ResolverConfig, ResolverOpts};
+                use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 
                 // Get a new resolver with the google nameservers as the upstream recursive resolvers
                 TokioAsyncResolver::new(
@@ -65,7 +63,7 @@ static GLOBAL_DNS_RESOLVER: Lazy<TokioAsyncResolver> = Lazy::new(|| {
         let (lock, cvar) = &*pair2;
         let mut started = lock.lock().unwrap();
 
-        let resolver = resolver.expect("failed to create trust-dns-resolver");
+        let resolver = resolver.expect("failed to create hickory-resolver");
 
         *started = Some(resolver);
         cvar.notify_one();
@@ -92,11 +90,6 @@ static GLOBAL_DNS_RESOLVER: Lazy<TokioAsyncResolver> = Lazy::new(|| {
 ///
 /// This looks up the `host` (a `&str` or `String` is good), and combines that with the provided port
 ///   this mimics the lookup functions of `std::net`.
-#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
-#[cfg_attr(
-    docsrs,
-    doc(cfg(all(feature = "tokio-runtime", feature = "system-config")))
-)]
 pub async fn resolve<N: IntoName + Display + TryParseIp + 'static>(
     host: N,
     port: u16,
@@ -122,7 +115,6 @@ pub async fn resolve<N: IntoName + Display + TryParseIp + 'static>(
         })
 }
 
-#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
 fn main() {
     use std::thread;
 
@@ -150,11 +142,6 @@ fn main() {
             .expect("resolution failed");
         println!("{name} resolved to {result:?}");
     }
-}
-
-#[cfg(not(all(feature = "tokio-runtime", feature = "system-config")))]
-fn main() {
-    println!("tokio-runtime and system-config feature must be enabled")
 }
 
 #[test]

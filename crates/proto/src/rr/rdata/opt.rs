@@ -1,8 +1,8 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! option record for passing protocol options between the client and server
@@ -367,7 +367,7 @@ pub enum EdnsCode {
     /// [RFC 8764l, Apple's Long-Lived Queries, Optional](https://tools.ietf.org/html/rfc8764)
     LLQ,
 
-    /// [UL On-hold](http://files.dns-sd.org/draft-sekar-dns-ul.txt)
+    /// [UL On-hold](https://files.dns-sd.org/draft-sekar-dns-ul.txt)
     UL,
 
     /// [RFC 5001, NSID](https://tools.ietf.org/html/rfc5001)
@@ -453,7 +453,7 @@ impl From<EdnsCode> for u16 {
 ///
 /// `note: Not all EdnsOptions are supported at this time.`
 ///
-/// <http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-13>
+/// <https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-13>
 #[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Hash)]
 #[non_exhaustive]
@@ -691,6 +691,9 @@ impl<'a> BinDecodable<'a> for ClientSubnet {
                 let addr_len =
                     (source_prefix / 8 + if source_prefix % 8 > 0 { 1 } else { 0 }) as usize;
                 let mut octets = Ipv4Addr::UNSPECIFIED.octets();
+                if addr_len > octets.len() {
+                    return Err(ProtoErrorKind::Message("Invalid address length").into());
+                }
                 for octet in octets.iter_mut().take(addr_len) {
                     *octet = decoder.read_u8()?.unverified();
                 }
@@ -707,6 +710,9 @@ impl<'a> BinDecodable<'a> for ClientSubnet {
                 let addr_len =
                     (source_prefix / 8 + if source_prefix % 8 > 0 { 1 } else { 0 }) as usize;
                 let mut octets = Ipv6Addr::UNSPECIFIED.octets();
+                if addr_len > octets.len() {
+                    return Err(ProtoErrorKind::Message("Invalid address length").into());
+                }
                 for octet in octets.iter_mut().take(addr_len) {
                     *octet = decoder.read_u8()?.unverified();
                 }
@@ -765,6 +771,9 @@ impl FromStr for ClientSubnet {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+    use alloc::collections::BTreeMap;
+    use std::println;
+
     use super::*;
 
     #[test]
@@ -802,7 +811,7 @@ mod tests {
         );
 
         let opt = read_rdata.unwrap();
-        let mut options = HashMap::default();
+        let mut options = BTreeMap::default();
         options.insert(
             EdnsCode::Subnet,
             EdnsOption::Subnet("0.0.0.0/0".parse().unwrap()),

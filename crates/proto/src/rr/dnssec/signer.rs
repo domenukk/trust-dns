@@ -1,11 +1,12 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! signer is a structure for performing many of the signing processes of the DNSSEC specification
+use alloc::vec::Vec;
 use tracing::debug;
 
 #[cfg(feature = "dnssec")]
@@ -525,6 +526,8 @@ impl MessageFinalizer for SigSigner {
         message: &Message,
         current_time: u32,
     ) -> ProtoResult<(Vec<Record>, Option<MessageVerifier>)> {
+        use alloc::vec::Vec;
+
         debug!("signing message: {message:?}");
         let key_tag: u16 = self.calculate_key_tag()?;
 
@@ -590,6 +593,10 @@ impl MessageFinalizer for SigSigner {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+    use std::println;
+
+    use alloc::string::String;
+    use alloc::vec::Vec;
     use openssl::bn::BigNum;
     use openssl::pkey::Private;
     use openssl::rsa::Rsa;
@@ -793,7 +800,7 @@ MC0CAQACBQC+L6pNAgMBAAECBQCYj0ZNAgMA9CsCAwDHZwICeEUCAnE/AgMA3u0=
         assert_eq!(key_tag, 28551);
     }
 
-    // TODO: these tests technically came from TBS in trust_dns_proto
+    // TODO: these tests technically came from TBS in hickory_proto
     #[cfg(feature = "openssl")]
     #[allow(clippy::module_inception)]
     #[cfg(test)]

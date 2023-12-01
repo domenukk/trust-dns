@@ -2,11 +2,13 @@
 // Copyright 2017 Google LLC.
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! tlsa records for storing TLS authentication records
+
+use alloc::string::String;
 
 use crate::rr::rdata::tlsa::CertUsage;
 use crate::rr::rdata::{sshfp, TLSA};

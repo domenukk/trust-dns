@@ -1,8 +1,8 @@
 // Copyright 2015-2017 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! Configuration for a resolver
@@ -94,6 +94,22 @@ impl ResolverConfig {
             domain: None,
             search: vec![],
             name_servers: NameServerConfigGroup::google_https(),
+        }
+    }
+
+    /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google). This limits the registered connections to just HTTP/3 lookups
+    ///
+    /// Please see Google's [privacy statement](https://developers.google.com/speed/public-dns/privacy) for important information about what they track, many ISP's track similar information in DNS. To use the system configuration see: `Resolver::from_system_conf` and `AsyncResolver::from_system_conf`
+    ///
+    /// NameServerConfigGroups can be combined to use a set of different providers, see `NameServerConfigGroup` and `ResolverConfig::from_parts`
+    #[cfg(feature = "dns-over-h3")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-h3")))]
+    pub fn google_h3() -> Self {
+        Self {
+            // TODO: this should get the hostname and use the basename as the default
+            domain: None,
+            search: vec![],
+            name_servers: NameServerConfigGroup::google_h3(),
         }
     }
 
@@ -258,10 +274,12 @@ impl ResolverConfig {
     /// use std::sync::Arc;
     ///
     /// use rustls::{ClientConfig, ProtocolVersion, RootCertStore, OwnedTrustAnchor};
-    /// use trust_dns_resolver::config::ResolverConfig;
+    /// use hickory_resolver::config::ResolverConfig;
+    /// # #[cfg(feature = "webpki-roots")]
     /// use webpki_roots;
     ///
     /// let mut root_store = RootCertStore::empty();
+    /// # #[cfg(feature = "webpki-roots")]
     /// root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
     ///     OwnedTrustAnchor::from_subject_spki_name_constraints(
     ///         ta.subject,
@@ -322,6 +340,10 @@ pub enum Protocol {
     #[cfg(feature = "dns-over-quic")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-quic")))]
     Quic,
+    /// HTTP/3 for DNS over HTTP/3
+    #[cfg(feature = "dns-over-h3")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-h3")))]
+    H3,
     /// mDNS protocol for performing multicast lookups
     #[cfg(feature = "mdns")]
     #[cfg_attr(docsrs, doc(cfg(feature = "mdns")))]
@@ -339,6 +361,8 @@ impl fmt::Display for Protocol {
             Self::Https => "https",
             #[cfg(feature = "dns-over-quic")]
             Self::Quic => "quic",
+            #[cfg(feature = "dns-over-h3")]
+            Self::H3 => "h3",
             #[cfg(feature = "mdns")]
             Self::Mdns => "mdns",
         };
@@ -360,6 +384,8 @@ impl Protocol {
             // TODO: if you squint, this is true...
             #[cfg(feature = "dns-over-quic")]
             Self::Quic => true,
+            #[cfg(feature = "dns-over-h3")]
+            Self::H3 => true,
             #[cfg(feature = "mdns")]
             Self::Mdns => true,
         }
@@ -381,6 +407,8 @@ impl Protocol {
             Self::Https => true,
             #[cfg(feature = "dns-over-quic")]
             Self::Quic => true,
+            #[cfg(feature = "dns-over-h3")]
+            Self::H3 => true,
             #[cfg(feature = "mdns")]
             Self::Mdns => false,
         }
@@ -447,7 +475,10 @@ pub struct NameServerConfig {
     #[cfg(feature = "dns-over-rustls")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-rustls")))]
     #[cfg_attr(feature = "serde-config", serde(skip))]
-    /// optional configuration for the tls client
+    /// Optional configuration for the TLS client.
+    ///
+    /// The correct ALPN for the corresponding protocol is automatically
+    /// inserted if none was specificed.
     pub tls_config: Option<TlsClientConfig>,
     /// The client address (IP and port) to use for connecting to the server.
     pub bind_addr: Option<SocketAddr>,
@@ -537,11 +568,12 @@ impl NameServerConfigGroup {
     ///
     /// This will create UDP and TCP connections, using the same port.
     pub fn from_ips_clear(ips: &[IpAddr], port: u16, trust_negative_responses: bool) -> Self {
-        let mut name_servers = Self::with_capacity(ips.len());
+        let mut name_servers = Self::with_capacity(2 * ips.len());
 
         for ip in ips {
+            let socket_addr = SocketAddr::new(*ip, port);
             let udp = NameServerConfig {
-                socket_addr: SocketAddr::new(*ip, port),
+                socket_addr,
                 protocol: Protocol::Udp,
                 tls_dns_name: None,
                 trust_negative_responses,
@@ -550,7 +582,7 @@ impl NameServerConfigGroup {
                 bind_addr: None,
             };
             let tcp = NameServerConfig {
-                socket_addr: SocketAddr::new(*ip, port),
+                socket_addr,
                 protocol: Protocol::Tcp,
                 tls_dns_name: None,
                 trust_negative_responses,
@@ -655,6 +687,26 @@ impl NameServerConfigGroup {
         )
     }
 
+    /// Configure a NameServer address and port for DNS-over-HTTP/3
+    ///
+    /// This will create a HTTP/3 connection.
+    #[cfg(feature = "dns-over-h3")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-h3")))]
+    pub fn from_ips_h3(
+        ips: &[IpAddr],
+        port: u16,
+        tls_dns_name: String,
+        trust_negative_responses: bool,
+    ) -> Self {
+        Self::from_ips_encrypted(
+            ips,
+            port,
+            tls_dns_name,
+            Protocol::H3,
+            trust_negative_responses,
+        )
+    }
+
     /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google).
     ///
     /// Please see Google's [privacy statement](https://developers.google.com/speed/public-dns/privacy) for important information about what they track, many ISP's track similar information in DNS. To use the system configuration see: `Resolver::from_system_conf` and `AsyncResolver::from_system_conf`
@@ -678,6 +730,15 @@ impl NameServerConfigGroup {
     #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
     pub fn google_https() -> Self {
         Self::from_ips_https(GOOGLE_IPS, 443, "dns.google".to_string(), true)
+    }
+
+    /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google). This limits the registered connections to just HTTP/3 lookups
+    ///
+    /// Please see Google's [privacy statement](https://developers.google.com/speed/public-dns/privacy) for important information about what they track, many ISP's track similar information in DNS. To use the system configuration see: `Resolver::from_system_conf` and `AsyncResolver::from_system_conf`
+    #[cfg(feature = "dns-over-h3")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-h3")))]
+    pub fn google_h3() -> Self {
+        Self::from_ips_h3(GOOGLE_IPS, 443, "dns.google".to_string(), true)
     }
 
     /// Creates a default configuration, using `1.1.1.1`, `1.0.0.1` and `2606:4700:4700::1111`, `2606:4700:4700::1001` (thank you, Cloudflare).
@@ -734,7 +795,7 @@ impl NameServerConfigGroup {
     ///
     /// ```
     /// use std::net::{SocketAddr, Ipv4Addr};
-    /// use trust_dns_resolver::config::NameServerConfigGroup;
+    /// use hickory_resolver::config::NameServerConfigGroup;
     ///
     /// let mut group = NameServerConfigGroup::google();
     /// group.merge(NameServerConfigGroup::cloudflare());
@@ -846,13 +907,13 @@ impl Default for ServerOrderingStrategy {
 }
 
 /// Configuration for the Resolver
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(
     feature = "serde-config",
     derive(Serialize, Deserialize),
     serde(default)
 )]
-#[allow(dead_code)] // TODO: remove after all params are supported
+#[allow(missing_copy_implementations)]
 #[non_exhaustive]
 pub struct ResolverOpts {
     /// Sets the number of dots that must appear (unless it's a final dot representing the root)
@@ -926,7 +987,7 @@ pub struct ResolverOpts {
 impl Default for ResolverOpts {
     /// Default values for the Resolver configuration.
     ///
-    /// This follows the resolv.conf defaults as defined in the [Linux man pages](http://man7.org/linux/man-pages/man5/resolv.conf.5.html)
+    /// This follows the resolv.conf defaults as defined in the [Linux man pages](https://man7.org/linux/man-pages/man5/resolv.conf.5.html)
     fn default() -> Self {
         Self {
             ndots: 1,

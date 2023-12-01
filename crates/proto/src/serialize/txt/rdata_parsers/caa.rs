@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,6 +16,7 @@
 
 //! mail exchange, email, record
 
+use alloc::string::ToString;
 use tracing::warn;
 
 use crate::rr::rdata::caa;
@@ -101,6 +102,8 @@ pub(crate) fn parse<'i, I: Iterator<Item = &'i str>>(mut tokens: I) -> ParseResu
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use crate::rr::{rdata::caa::KeyValue, Name, RData, RecordType};
     use crate::serialize::txt::parse_rdata::RDataParser;
 

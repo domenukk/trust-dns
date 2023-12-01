@@ -1,14 +1,14 @@
 // Copyright 2015-2019 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 use std::io;
 use std::marker::Unpin;
 use std::net::SocketAddr;
-#[cfg(feature = "dns-over-quic")]
+#[cfg(any(feature = "dns-over-quic", feature = "dns-over-h3"))]
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -31,8 +31,12 @@ use tokio_openssl::SslStream as TokioTlsStream;
 use tokio_rustls::client::TlsStream as TokioTlsStream;
 
 use crate::config::{NameServerConfig, Protocol, ResolverOpts};
+#[cfg(any(feature = "dns-over-quic", feature = "dns-over-h3"))]
+use hickory_proto::udp::QuicLocalAddr;
 #[cfg(feature = "dns-over-https")]
-use proto::https::{HttpsClientConnect, HttpsClientStream};
+use proto::h2::{HttpsClientConnect, HttpsClientStream};
+#[cfg(feature = "dns-over-h3")]
+use proto::h3::{H3ClientConnect, H3ClientStream};
 #[cfg(feature = "mdns")]
 use proto::multicast::{MdnsClientConnect, MdnsClientStream, MdnsQueryType};
 #[cfg(feature = "dns-over-quic")]
@@ -55,8 +59,6 @@ use proto::{
 };
 #[cfg(feature = "tokio-runtime")]
 use proto::{iocompat::AsyncIoTokioAsStd, TokioTime};
-#[cfg(feature = "dns-over-quic")]
-use trust_dns_proto::udp::QuicLocalAddr;
 
 use crate::error::ResolveError;
 
@@ -68,10 +70,10 @@ pub trait RuntimeProvider: Clone + Send + Sync + Unpin + 'static {
     /// Timer
     type Timer: Time + Send + Unpin;
 
-    #[cfg(not(feature = "dns-over-quic"))]
+    #[cfg(not(any(feature = "dns-over-quic", feature = "dns-over-h3")))]
     /// UdpSocket
     type Udp: DnsUdpSocket + Send;
-    #[cfg(feature = "dns-over-quic")]
+    #[cfg(any(feature = "dns-over-quic", feature = "dns-over-h3"))]
     /// UdpSocket, where `QuicLocalAddr` is for `quinn` crate.
     type Udp: DnsUdpSocket + QuicLocalAddr + Send;
 
@@ -165,6 +167,8 @@ pub(crate) enum ConnectionConnect<R: RuntimeProvider> {
     Https(DnsExchangeConnect<HttpsClientConnect<R::Tcp>, HttpsClientStream, TokioTime>),
     #[cfg(all(feature = "dns-over-quic", feature = "tokio-runtime"))]
     Quic(DnsExchangeConnect<QuicClientConnect, QuicClientStream, TokioTime>),
+    #[cfg(all(feature = "dns-over-h3", feature = "tokio-runtime"))]
+    H3(DnsExchangeConnect<H3ClientConnect, H3ClientStream, TokioTime>),
     #[cfg(feature = "mdns")]
     Mdns(
         DnsExchangeConnect<
@@ -215,6 +219,12 @@ impl<R: RuntimeProvider> Future for ConnectionFuture<R> {
                 self.spawner.spawn_bg(bg);
                 GenericConnection(conn)
             }
+            #[cfg(feature = "dns-over-h3")]
+            ConnectionConnect::H3(ref mut conn) => {
+                let (conn, bg) = ready!(conn.poll_unpin(cx))?;
+                self.spawner.spawn_bg(bg);
+                GenericConnection(conn)
+            }
             #[cfg(feature = "mdns")]
             ConnectionConnect::Mdns(ref mut conn) => {
                 let (conn, bg) = ready!(conn.poll_unpin(cx))?;
@@ -233,7 +243,7 @@ impl DnsHandle for GenericConnection {
     type Response = ConnectionResponse;
     type Error = ResolveError;
 
-    fn send<R: Into<DnsRequest> + Unpin + Send + 'static>(&mut self, request: R) -> Self::Response {
+    fn send<R: Into<DnsRequest> + Unpin + Send + 'static>(&self, request: R) -> Self::Response {
         ConnectionResponse(self.0.send(request))
     }
 }
@@ -344,7 +354,7 @@ impl<P: RuntimeProvider> ConnectionProvider for GenericConnector<P> {
                 let client_config = config.tls_config.clone();
                 let tcp_future = self.runtime_provider.connect_tcp(socket_addr);
 
-                let exchange = crate::https::new_https_stream_with_future(
+                let exchange = crate::h2::new_https_stream_with_future(
                     tcp_future,
                     socket_addr,
                     tls_dns_name,
@@ -373,6 +383,27 @@ impl<P: RuntimeProvider> ConnectionProvider for GenericConnector<P> {
                     client_config,
                 );
                 ConnectionConnect::Quic(exchange)
+            }
+            #[cfg(feature = "dns-over-h3")]
+            Protocol::H3 => {
+                let socket_addr = config.socket_addr;
+                let bind_addr = config.bind_addr.unwrap_or(match socket_addr {
+                    SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
+                    SocketAddr::V6(_) => {
+                        SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)), 0)
+                    }
+                });
+                let tls_dns_name = config.tls_dns_name.clone().unwrap_or_default();
+                let client_config = config.tls_config.clone();
+                let udp_future = self.runtime_provider.bind_udp(bind_addr, socket_addr);
+
+                let exchange = crate::h3::new_h3_stream_with_future(
+                    udp_future,
+                    socket_addr,
+                    tls_dns_name,
+                    client_config,
+                );
+                ConnectionConnect::H3(exchange)
             }
             #[cfg(feature = "mdns")]
             Protocol::Mdns => {
@@ -482,7 +513,10 @@ pub mod tokio_runtime {
 
     /// Reap finished tasks from a `JoinSet`, without awaiting or blocking.
     fn reap_tasks(join_set: &mut JoinSet<Result<(), ProtoError>>) {
-        while FutureExt::now_or_never(join_set.join_next()).is_some() {}
+        while FutureExt::now_or_never(join_set.join_next())
+            .flatten()
+            .is_some()
+        {}
     }
 
     /// Default ConnectionProvider with `GenericConnection`.

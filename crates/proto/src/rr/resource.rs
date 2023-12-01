@@ -1,8 +1,8 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! resource record implementation
@@ -491,9 +491,9 @@ impl<'r> BinDecodable<'r> for Record<RData> {
                     decoder.read_u16()?.unverified(/*DNSClass::from_u16 will verify the value*/);
                 if dns_class_value & MDNS_ENABLE_CACHE_FLUSH > 0 {
                     mdns_cache_flush = true;
-                    DNSClass::from_u16(dns_class_value & !MDNS_ENABLE_CACHE_FLUSH)?
+                    DNSClass::from(dns_class_value & !MDNS_ENABLE_CACHE_FLUSH)
                 } else {
-                    DNSClass::from_u16(dns_class_value)?
+                    DNSClass::from(dns_class_value)
                 }
             }
         };
@@ -837,7 +837,9 @@ mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
     use alloc::str::FromStr;
+    use alloc::vec::Vec;
     use std::cmp::Ordering;
+    use std::println;
 
     use super::*;
     use crate::rr::dns_class::DNSClass;

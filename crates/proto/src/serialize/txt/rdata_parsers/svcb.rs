@@ -1,13 +1,17 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! SVCB records in presentation format
 
-use alloc::str::FromStr;
+use alloc::{
+    str::FromStr,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use crate::{
     rr::{
@@ -243,7 +247,7 @@ fn parse_ipv4_hint(value: Option<&str>) -> Result<SvcParamValue, ParseError> {
 }
 
 /// As the documentation states, the presentation format (what this function reads) must be a BASE64 encoded string.
-///   trust-dns will decode the BASE64 during parsing and stores the internal data as the raw bytes.
+///   hickory-dns will decode the BASE64 during parsing and stores the internal data as the raw bytes.
 ///
 /// [draft-ietf-dnsop-svcb-https-03 SVCB and HTTPS RRs for DNS, February 2021](https://datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-03#section-9)
 /// ```text
@@ -324,9 +328,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use crate::{
         rr::{rdata::HTTPS, RecordData},
-        serialize::txt::{Lexer, Parser},
+        serialize::txt::Parser,
     };
 
     use super::*;
@@ -334,11 +340,8 @@ mod tests {
     // this assumes that only a single record is parsed
     // TODO: make Parser return an iterator over all records in a stream.
     fn parse_record<D: RecordData>(txt: &str) -> D {
-        let lex = Lexer::new(txt);
-        let mut parser = Parser::new();
-
-        let records = parser
-            .parse(lex, Some(Name::root()))
+        let records = Parser::new(txt, None, Some(Name::root()))
+            .parse()
             .expect("failed to parse record")
             .1;
         let record_set = records.into_iter().next().expect("no record found").1;

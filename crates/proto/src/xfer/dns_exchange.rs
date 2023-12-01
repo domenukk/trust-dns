@@ -1,8 +1,8 @@
 // Copyright 2015-2018 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! This module contains all the types for demuxing DNS oriented streams.
@@ -80,6 +80,16 @@ impl DnsExchange {
 
         DnsExchangeConnect::connect(connect_future, outbound_messages, message_sender)
     }
+
+    /// Returns a future that returns an error immediately.
+    pub fn error<F, S, TE>(error: ProtoError) -> DnsExchangeConnect<F, S, TE>
+    where
+        F: Future<Output = Result<S, ProtoError>> + 'static + Send + Unpin,
+        S: DnsRequestSender + 'static + Send + Unpin,
+        TE: Time + Unpin,
+    {
+        DnsExchangeConnect(DnsExchangeConnectInner::Error(error))
+    }
 }
 
 impl Clone for DnsExchange {
@@ -94,7 +104,7 @@ impl DnsHandle for DnsExchange {
     type Response = DnsExchangeSend;
     type Error = ProtoError;
 
-    fn send<R: Into<DnsRequest> + Unpin + Send + 'static>(&mut self, request: R) -> Self::Response {
+    fn send<R: Into<DnsRequest> + Unpin + Send + 'static>(&self, request: R) -> Self::Response {
         DnsExchangeSend {
             result: self.sender.send(request),
             _sender: self.sender.clone(), // TODO: this shouldn't be necessary, currently the presence of Senders is what allows the background to track current users, it generally is dropped right after send, this makes sure that there is at least one active after send
@@ -177,7 +187,7 @@ where
                 }
                 Poll::Ready(Some(Err(err))) => {
                     debug!(
-                        error = err.as_dyn(),
+                        // TODO error = err.as_dyn(),
                         "io_stream hit an error, shutting down"
                     );
 
@@ -284,6 +294,7 @@ where
         error: ProtoError,
         outbound_messages: mpsc::Receiver<OneshotDnsRequest>,
     },
+    Error(ProtoError),
 }
 
 #[allow(clippy::type_complexity)]
@@ -324,7 +335,10 @@ where
                         }
                         Poll::Pending => return Poll::Pending,
                         Poll::Ready(Err(error)) => {
-                            debug!(error = error.as_dyn(), "stream errored while connecting");
+                            debug!(
+                                // TODOerror = error.as_dyn(),
+                                "stream errored while connecting"
+                            );
                             next = Self::FailAll {
                                 error,
                                 outbound_messages: outbound_messages
@@ -361,6 +375,7 @@ where
 
                     return Poll::Ready(Err(error.clone()));
                 }
+                Self::Error(ref error) => return Poll::Ready(Err(error.clone())),
             }
 
             *self = next;

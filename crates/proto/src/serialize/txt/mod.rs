@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,6 +24,6 @@ mod zone_lex;
 
 pub use self::parse_rdata::RDataParser;
 pub use self::zone::Parser;
-pub use self::zone_lex::Lexer;
+use self::zone_lex::Lexer;
 pub use self::zone_lex::Token;
 pub use errors::{ParseError, ParseErrorKind, ParseResult};

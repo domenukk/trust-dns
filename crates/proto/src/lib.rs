@@ -2,8 +2,8 @@
 // Copyright 2017 Google LLC.
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 #![no_std]
@@ -30,8 +30,13 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(not(feature = "std"), feature(error_in_core))]
 #![cfg_attr(not(feature = "std"), feature(ip_in_core))]
-//#![cfg_attr(not(feature = "std"), feature(btree_drain_filter))]
-//! Trust-DNS Protocol library
+
+//! Hickory DNS Protocol library
+
+#[cfg(not(any(feature = "std", feature = "unstable")))]
+compile_error!(
+    "Currently, no_std support only works with unstable features. Use a nightly toolchain and the `unstable` feature, or enable the `std` feature."
+);
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -40,35 +45,46 @@ extern crate std;
 extern crate alloc;
 
 use async_trait::async_trait;
+
+#[cfg(all(not(feature = "std")))]
+use const_random::const_random;
+#[cfg(all(not(feature = "std")))]
+use core::cell::RefCell;
+#[cfg(all(not(feature = "std")))]
 use critical_section::Mutex;
+#[cfg(not(feature = "std"))]
+use once_cell::sync::Lazy;
+
 use futures_util::future::Future;
 
 use alloc::boxed::Box;
 #[cfg(feature = "std")]
 use core::marker::Send;
-use core::{cell::RefCell, time::Duration};
-use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng, Rng, SeedableRng};
+use core::time::Duration;
+
 #[cfg(any(test, feature = "tokio-runtime"))]
 use tokio::runtime::Runtime;
 #[cfg(any(test, feature = "tokio-runtime"))]
 use tokio::task::JoinHandle;
 
+#[cfg(not(feature = "std"))]
+use rand::{rngs::StdRng, Rng, SeedableRng};
+
+#[cfg(not(feature = "std"))]
+pub(crate) use core::net;
 #[cfg(feature = "std")]
-fn random() -> u64 {
-    //rand::random()
-    SEEDED_RNG.lock().next_u64()
-}
+pub(crate) use rand::random;
+#[cfg(feature = "std")]
+pub(crate) use std::net;
 
-use const_random::const_random;
-use once_cell::sync::Lazy;
+#[cfg(not(feature = "std"))]
+use rand::distributions::{Distribution, Standard};
 
+#[cfg(not(feature = "std"))]
 static SEEDED_RNG: Lazy<Mutex<RefCell<StdRng>>> = Lazy::new(|| {
     let rng = StdRng::seed_from_u64(const_random!(u64));
     Mutex::new(RefCell::new(rng))
 });
-
-#[cfg(feature = "std")]
-pub(crate) use rand::random;
 
 /// Generates a random value on `no_std`.
 #[cfg(not(feature = "std"))]
@@ -104,7 +120,16 @@ pub fn spawn_bg<F: Future<Output = R> + Send + 'static, R: Send + 'static>(
 pub mod error;
 #[cfg(feature = "dns-over-https")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
-pub mod https;
+pub mod h2;
+#[cfg(feature = "dns-over-h3")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dns-over-h3")))]
+pub mod h3;
+#[cfg(any(feature = "dns-over-https", feature = "dns-over-h3"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "dns-over-https", feature = "dns-over-h3")))
+)]
+pub mod http;
 #[cfg(feature = "mdns")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mdns")))]
 pub mod multicast;

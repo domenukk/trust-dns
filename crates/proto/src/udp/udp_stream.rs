@@ -1,8 +1,8 @@
 // Copyright 2015-2018 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 use alloc::sync::Arc;
@@ -95,7 +95,7 @@ pub struct UdpStream<S: Send> {
 /// To implement quinn::AsyncUdpSocket, we need our custom socket capable of getting local address.
 pub trait QuicLocalAddr {
     /// Get local address
-    fn local_addr(&self) -> core::io::Result<std::net::SocketAddr>;
+    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr>;
 }
 
 #[cfg(feature = "tokio-runtime")]

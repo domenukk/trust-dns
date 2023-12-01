@@ -1,21 +1,21 @@
 // Copyright 2015-2022 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 use std::{io, net::SocketAddr, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
-use drain::Watch;
 use futures_util::lock::Mutex;
-use tracing::{debug, warn};
-use trust_dns_proto::{
+use hickory_proto::{
     error::ProtoError,
     quic::{DoqErrorCode, QuicStream},
     rr::Record,
 };
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, warn};
 
 use crate::{
     authority::MessageResponse,
@@ -31,7 +31,7 @@ pub(crate) async fn quic_handler<T>(
     mut quic_streams: QuicStreams,
     src_addr: SocketAddr,
     _dns_hostname: Option<Arc<str>>,
-    shutdown: Watch,
+    shutdown: CancellationToken,
 ) -> Result<(), ProtoError>
 where
     T: RequestHandler,
@@ -52,7 +52,7 @@ where
                     break;
                 }
             },
-            _ = shutdown.clone().signaled() => {
+            _ = shutdown.cancelled() => {
                 // A graceful shutdown was initiated.
                 break;
             },

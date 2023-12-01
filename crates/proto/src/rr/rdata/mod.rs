@@ -1,8 +1,8 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! All record data structures and related serialization methods
@@ -24,8 +24,10 @@ pub mod openpgpkey;
 pub mod opt;
 pub mod soa;
 pub mod srv;
+#[cfg(feature = "std")]
 pub mod sshfp;
 pub mod svcb;
+#[cfg(feature = "std")]
 pub mod tlsa;
 pub mod txt;
 
@@ -43,7 +45,9 @@ pub use self::openpgpkey::OPENPGPKEY;
 pub use self::opt::OPT;
 pub use self::soa::SOA;
 pub use self::srv::SRV;
+#[cfg(feature = "std")]
 pub use self::sshfp::SSHFP;
 pub use self::svcb::SVCB;
+#[cfg(feature = "std")]
 pub use self::tlsa::TLSA;
 pub use self::txt::TXT;

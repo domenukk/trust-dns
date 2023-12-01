@@ -1,108 +1,109 @@
 [workspace]
+resolver = "2"
 members = [
     "crates/proto",
-    #"crates/resolver",
-    #"crates/recursor",
-    #"crates/client",
-    #"crates/server",
-    #"crates/async-std-resolver",
-    #"bin",
-    #"util",
-    #"tests/compatibility-tests",
-    #"tests/integration-tests",
+    "crates/resolver",
+    "crates/recursor",
+    "crates/client",
+    "crates/server",
+    "crates/async-std-resolver",
+    "bin",
+    "util",
+    "tests/compatibility-tests",
+    "tests/integration-tests",
 ]
-
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.23.0-alpha.5"
-authors = ["The contributors to Trust-DNS"]
+version = "0.24.0"
+authors = ["The contributors to Hickory DNS"]
 edition = "2021"
-rust-version = "1.64.0"
-homepage = "https://trust-dns.org/"
-repository = "https://github.com/bluejekyll/trust-dns"
+rust-version = "1.67.0"
+homepage = "https://hickory-dns.org/"
+repository = "https://github.com/hickory-dns/hickory-dns"
 keywords = ["DNS", "BIND", "dig", "named", "dnssec"]
 categories = ["network-programming"]
 license = "MIT OR Apache-2.0"
 
 
 [workspace.dependencies]
-# trustdns
-#trust-dns-client = { version = "0.23.0-alpha.5", path = "crates/client", default-features = false }
-#trust-dns-recursor = { version = "0.23.0-alpha.5", path = "crates/recursor", default-features = false }
-#trust-dns-resolver = { version = "0.23.0-alpha.5", path = "crates/resolver", default-features = false }
-#trust-dns-server = { version = "0.23.0-alpha.5", path = "crates/server", default-features = false }
-trust-dns-proto = { version = "0.23.0-alpha.5", path = "crates/proto", default-features = false }
+# hickory
+hickory-client = { version = "0.24.0", path = "crates/client", default-features = false }
+hickory-recursor = { version = "0.24.0", path = "crates/recursor", default-features = false }
+hickory-resolver = { version = "0.24.0", path = "crates/resolver", default-features = false }
+hickory-server = { version = "0.24.0", path = "crates/server", default-features = false }
+hickory-proto = { version = "0.24.0", path = "crates/proto", default-features = false }
 
 
 # logging
-#tracing = { version = "0.1.37", default-features = false }
-#tracing-subscriber = "0.3"
-#thiserror = "1.0.20"
+tracing = { version = "0.1.37", default-features = false }
+tracing-subscriber = "0.3"
+thiserror = { version = "1.0.50", package = "thiserror-core", default-features = false }
 
 
 # async/await
-#async-recursion = "1.0.0"
+async-recursion = "1.0.0"
 async-trait = "0.1.43"
-#futures = { version = "0.3.5", default-features = false }
-#futures-channel = { version = "0.3.5", default-features = false }
-#futures-executor = { version = "0.3.5", default-features = false }
-#futures-io = { version = "0.3.5", default-features = false }
-#futures-util = { version = "0.3.5", default-features = false }
-#async-std = "1.6"
-#tokio = "1.21"
-#tokio-native-tls = "0.3.0"
-#tokio-openssl = "0.6.0"
-#tokio-rustls = "0.24.0"
-#parking_lot = "0.12"
+futures = { version = "0.3.5", default-features = false }
+futures-channel = { version = "0.3.5", default-features = false }
+futures-executor = { version = "0.3.5", default-features = false }
+futures-io = { version = "0.3.5", default-features = false }
+futures-util = { version = "0.3.5", default-features = false }
+async-std = "1.6"
+tokio = "1.21"
+tokio-native-tls = "0.3.0"
+tokio-openssl = "0.6.0"
+tokio-rustls = "0.24.0"
+tokio-util = "0.7.9"
+parking_lot = "0.12"
 
 
 # ssl
-#native-tls = "0.2"
-#openssl = "0.10.55"
-#rustls = "0.21.0"
-#rustls-pemfile = "1.0.0"
-#webpki = { version = "0.101.0", package = "rustls-webpki" }
-#webpki-roots = "0.25.0"
-#ring = "0.16"
+native-tls = "0.2"
+openssl = "0.10.55"
+rustls = "0.21.8"
+rustls-native-certs = "0.6.3"
+rustls-pemfile = "1.0.0"
+webpki-roots = "0.25.0"
+ring = "0.17"
 
 
 # net proto
-#quinn = { version = "0.10", default-features = false }
+quinn = { version = "0.10", default-features = false }
 h2 = "0.3.0"
+h3 = "0.0.3"
+h3-quinn = "0.0.4"
 http = "0.2"
 
 
 # others
 backtrace = "0.3.50"
+basic-toml = "0.1"
 bytes = "1"
 cfg-if = "1"
-#clap = { version = "4.0", default-features = false }
-#console = "0.15.0"
-data-encoding = { version = "2.2.0", default-features = false, features = ["alloc"] }
-#drain = "0.1.1"
+clap = { version = "4.0", default-features = false }
+console = "0.15.0"
+data-encoding = { version = "2.2.0", default-features = false }
 enum-as-inner = "0.6"
-idna = { git="https://github.com/domenukk/rust-url.git", workspace = true, default-features = false, features = ["alloc"], rev = "be73851" }
-#ipconfig = "0.3.0"
-#ipnet = "2.3.0"
-#js-sys = "0.3.44"
-#once_cell = "1.18.0"
-#lru-cache = "0.1.2"
-#pin-utils = "0.1.0"
-#radix_trie = "0.2.0"
+idna = { version = "0.5", default-features = false, features = ["alloc"] }
+ipconfig = "0.3.0"
+ipnet = { version = "2.3.0", default-features = false }
+js-sys = "0.3.44"
+once_cell = { version = "1.18.0", default-features = false }
+lru-cache = "0.1.2"
+pin-utils = "0.1.0"
+radix_trie = "0.2.0"
 rand = { version = "0.8", default-features = false, features = ["std_rng", "alloc"] }
-#regex = "1.3.4"
-#resolv-conf = "0.7.0"
-#rusqlite = "0.29.0"
+regex = "1.3.4"
+resolv-conf = "0.7.0"
+rusqlite = "0.29.0"
 serde = "1.0"
 smallvec = "1.6"
-#socket2 = "0.5"
-#time = "0.3"
+socket2 = "0.5"
+time = "0.3"
 tinyvec = "1.1.1"
-#toml = "0.7"
 url = { git = "https://github.com/domenukk/rust-url.git", default-features = false, features = ["alloc", "unstable"], rev = "be73851" }
-##url = "2.4.0"
-#wasm-bindgen-crate = { version = "0.2.58", package = "wasm-bindgen" }
+wasm-bindgen-crate = { version = "0.2.58", package = "wasm-bindgen" }
 
 [patch.crates-io]
 # tokio = { path = "../tokio/tokio" }

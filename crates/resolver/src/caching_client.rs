@@ -1,8 +1,8 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! Caching related functionality for the Resolver.
@@ -245,7 +245,10 @@ where
             Ok(Records::CnameChain {
                 next: future,
                 min_ttl: ttl,
-            }) => client.cname(future.await?, query, ttl),
+            }) => match future.await {
+                Ok(lookup) => client.cname(lookup, query, ttl),
+                Err(e) => client.cache(query, Err(e)),
+            },
             Ok(Records::Exists(rdata)) => client.cache(query, Ok(rdata)),
             Err(e) => client.cache(query, Err(e)),
         }
@@ -380,8 +383,8 @@ where
             let records = answers
                 .into_iter()
                 // Chained records will generally exist in the additionals section
-                .chain(additionals.into_iter())
-                .chain(name_servers.into_iter())
+                .chain(additionals)
+                .chain(name_servers)
                 .filter_map(|r| {
                     // because this resolved potentially recursively, we want the min TTL from the chain
                     let ttl = cname_ttl.min(r.ttl());
@@ -506,9 +509,8 @@ mod tests {
 
     use futures_executor::block_on;
     use proto::op::{Message, Query};
-    use proto::rr::rdata::SRV;
+    use proto::rr::rdata::{NS, SRV};
     use proto::rr::{Name, Record};
-    use trust_dns_proto::rr::rdata::NS;
 
     use super::*;
     use crate::lookup_ip::tests::*;

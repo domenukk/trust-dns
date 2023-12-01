@@ -1,8 +1,8 @@
 // Copyright 2015-2016 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 #![allow(
@@ -12,8 +12,10 @@
     clippy::single_component_path_imports
 )]
 
+use alloc::borrow::ToOwned;
+use alloc::string::ToString;
 use alloc::sync::Arc;
-use std::env;
+use alloc::vec::Vec;
 use std::fs::File;
 use std::io::{Read, Write};
 #[cfg(not(target_os = "linux"))]
@@ -21,6 +23,7 @@ use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic;
+use std::{env, println};
 use std::{thread, time};
 
 use futures_util::stream::StreamExt;

@@ -1,8 +1,8 @@
 // Copyright 2015-2020 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 use std::{fmt, io};
@@ -25,8 +25,9 @@ pub enum ErrorKind {
     Io(#[from] io::Error),
 
     /// An error occurred while decoding toml data
+    #[cfg(feature = "toml")]
     #[error("toml decode error: {0}")]
-    TomlDecode(#[from] toml::de::Error),
+    TomlDecode(#[from] basic_toml::Error),
 
     /// An error occurred while parsing a zone file
     #[error("failed to parse the zone file: {0}")]

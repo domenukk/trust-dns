@@ -1,8 +1,8 @@
 // Copyright 2015-2017 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! domain name, aka labels, implementation
@@ -19,9 +19,10 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::error::*;
 use crate::rr::domain::label::{CaseInsensitive, CaseSensitive, IntoLabel, Label, LabelCmp};
+#[cfg(feature = "std")]
 use crate::rr::domain::usage::LOCALHOST as LOCALHOST_usage;
 use crate::serialize::binary::*;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 #[cfg(feature = "serde-config")]
@@ -68,7 +69,7 @@ impl Name {
     /// # Examples
     ///
     /// ```
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let root = Name::root();
     /// assert_eq!(&root.to_string(), ".");
@@ -88,7 +89,7 @@ impl Name {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let name = Name::from_str("www").unwrap();
     /// assert!(!name.is_fqdn());
@@ -124,8 +125,8 @@ impl Name {
     /// # Example
     ///
     /// ```rust
-    /// use alloc::str::FromStr;
     /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let name = Name::from_str("www.example").unwrap();
     /// let name = name.append_label("com").unwrap();
@@ -146,7 +147,7 @@ impl Name {
     ///
     /// ```rust
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// // From strings, uses utf8 conversion
     /// let from_labels = Name::from_labels(vec!["www", "example", "com"]).unwrap();
@@ -197,7 +198,7 @@ impl Name {
     ///
     /// ```rust
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let local = Name::from_str("www").unwrap();
     /// let domain = Name::from_str("example.com").unwrap();
@@ -232,7 +233,7 @@ impl Name {
     ///
     /// ```rust
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let local = Name::from_str("www").unwrap();
     /// let domain = Name::from_str("example.com").unwrap();
@@ -254,7 +255,7 @@ impl Name {
     /// use std::cmp::Ordering;
     /// use alloc::str::FromStr;
     ///
-    /// use trust_dns_proto::rr::domain::{Label, Name};
+    /// use hickory_proto::rr::domain::{Label, Name};
     ///
     /// let example_com = Name::from_ascii("Example.Com").unwrap();
     /// assert_eq!(example_com.cmp_case(&Name::from_str("example.com").unwrap()), Ordering::Less);
@@ -279,7 +280,7 @@ impl Name {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let example_com = Name::from_str("example.com.").unwrap();
     /// assert_eq!(example_com.base_name(), Name::from_str("com.").unwrap());
@@ -300,7 +301,7 @@ impl Name {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let example_com = Name::from_str("example.com.").unwrap();
     /// assert_eq!(example_com.trim_to(2), Name::from_str("example.com.").unwrap());
@@ -351,7 +352,7 @@ impl Name {
     ///
     /// ```rust
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let name = Name::from_str("www.example.com").unwrap();
     /// let name = Name::from_str("www.example.com").unwrap();
@@ -374,7 +375,7 @@ impl Name {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let root = Name::root();
     /// assert_eq!(root.num_labels(), 0);
@@ -405,7 +406,7 @@ impl Name {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// assert_eq!(Name::from_str("www.example.com.").unwrap().len(), 16);
     /// assert_eq!(Name::from_str(".").unwrap().len(), 1);
@@ -432,7 +433,7 @@ impl Name {
     ///
     /// ```rust
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::domain::Name;
+    /// use hickory_proto::rr::domain::Name;
     ///
     /// let name = Name::from_str("example.com.").unwrap();
     /// assert_eq!(name.base_name(), Name::from_str("com.").unwrap());
@@ -449,7 +450,7 @@ impl Name {
     /// # Examples
     ///
     /// ```
-    /// use trust_dns_proto::rr::Name;
+    /// use hickory_proto::rr::Name;
     ///
     /// let bytes_name = Name::from_labels(vec!["WWW".as_bytes(), "example".as_bytes(), "COM".as_bytes()]).unwrap();
     /// let ascii_name = Name::from_ascii("WWW.example.COM.").unwrap();
@@ -482,7 +483,7 @@ impl Name {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::Name;
+    /// use hickory_proto::rr::Name;
     ///
     /// let bytes_name = Name::from_labels(vec!["WWW".as_bytes(), "example".as_bytes(), "COM".as_bytes()]).unwrap();
     ///
@@ -504,7 +505,7 @@ impl Name {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::Name;
+    /// use hickory_proto::rr::Name;
     ///
     /// // Ok, underscore in the beginning of a name
     /// assert!(Name::from_utf8("_allows.example.com.").is_ok());
@@ -813,13 +814,14 @@ impl Name {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     /// Returns true if the `Name` is either localhost or in the localhost zone.
     ///
     /// # Example
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::Name;
+    /// use hickory_proto::rr::Name;
     ///
     /// let name = Name::from_str("localhost").unwrap();
     /// assert!(name.is_localhost());
@@ -840,7 +842,7 @@ impl Name {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::Name;
+    /// use hickory_proto::rr::Name;
     ///
     /// let name = Name::from_str("www.example.com").unwrap();
     /// assert!(!name.is_wildcard());
@@ -861,7 +863,7 @@ impl Name {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::Name;
+    /// use hickory_proto::rr::Name;
     ///
     /// let name = Name::from_str("www.example.com").unwrap().into_wildcard();
     /// assert_eq!(name, Name::from_str("*.example.com.").unwrap());
@@ -1359,8 +1361,8 @@ mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
     use alloc::str::FromStr;
-    use std::cmp::Ordering;
     use std::iter;
+    use std::{cmp::Ordering, println};
 
     use super::*;
 
@@ -1890,7 +1892,7 @@ mod tests {
 
     #[test]
     fn test_name_too_long_with_append() {
-        // from https://github.com/bluejekyll/trust-dns/issues/1447
+        // from https://github.com/hickory-dns/hickory-dns/issues/1447
         let n = Name::from_ascii("Llocainvannnnnnaxgtezqzqznnnnnn1na.nnntnninvannnnnnaxgtezqzqznnnnnn1na.nnntnnnnnnnaxgtezqzqznnnnnn1na.nnntnaaaaaaaaaaaaaaaaaaaaaaaaiK.iaaaaaaaaaaaaaaaaaaaaaaaaiKa.innnnnaxgtezqzqznnnnnn1na.nnntnaaaaaaaaaaaaaaaaaaaaaaaaiK.iaaaaaaaaaaaaaaaaaaaaaaaaiKa.in").unwrap();
         let sfx = Name::from_ascii("xxxxxxx.yyyyy.zzz").unwrap();
 

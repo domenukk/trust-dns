@@ -1,8 +1,8 @@
 // Copyright 2015-2018 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! UDP based DNS client connection for Client impls
@@ -11,15 +11,15 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use hickory_proto::h2::{HttpsClientConnect, HttpsClientStream, HttpsClientStreamBuilder};
+use hickory_proto::tcp::Connect;
 use rustls::ClientConfig;
-use trust_dns_proto::https::{HttpsClientConnect, HttpsClientStream, HttpsClientStreamBuilder};
-use trust_dns_proto::tcp::Connect;
 
 use crate::client::{ClientConnection, Signer};
 
 /// UDP based DNS Client connection
 ///
-/// Use with `trust_dns_client::client::Client` impls
+/// Use with `hickory_client::client::Client` impls
 #[derive(Clone)]
 pub struct HttpsClientConnection<T> {
     name_server: SocketAddr,
@@ -28,6 +28,61 @@ pub struct HttpsClientConnection<T> {
     client_config: Arc<ClientConfig>,
     marker: PhantomData<T>,
 }
+
+/// ## Querying DNS over HTTPS (DoH)
+///
+/// The example code below demonstrates how to use the Client to
+/// issue DNS queries over HTTPS.
+///
+/// ```rust
+/// use hickory_client::client::SyncClient;
+/// use hickory_client::client::Client;
+/// use hickory_client::h2::HttpsClientConnection;
+/// use hickory_client::rr::{DNSClass, Name, RecordType};
+/// use hickory_proto::iocompat::AsyncIoTokioAsStd;
+/// use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+/// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+/// use webpki_roots;
+///
+/// let name_server = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 443);
+/// let host_to_lookup = "example.com".to_string();
+///
+/// let mut root_store = RootCertStore::empty();
+/// root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+///     OwnedTrustAnchor::from_subject_spki_name_constraints(
+///         ta.subject,
+///         ta.spki,
+///         ta.name_constraints,
+///     )
+/// }));
+///
+/// let client_config = ClientConfig::builder()
+///     .with_safe_default_cipher_suites()
+///     .with_safe_default_kx_groups()
+///     .with_safe_default_protocol_versions()
+///     .unwrap()
+///     .with_root_certificates(root_store)
+///     .with_no_client_auth();
+///
+/// let shared_client_config = std::sync::Arc::new(client_config);
+/// let conn: HttpsClientConnection<AsyncIoTokioAsStd<tokio::net::TcpStream>> =
+///     HttpsClientConnection::new(name_server, "dns.google".to_string(), shared_client_config);
+///
+/// let client = SyncClient::new(conn);
+/// let name = Name::from_ascii(host_to_lookup).unwrap();
+/// let dns_class = DNSClass::IN;
+/// let record_type = RecordType::A;
+///
+/// let response = client.query(&name, dns_class, record_type);
+/// match response {
+///     Ok(answer) => {
+///         println!("ok={:?}", answer);
+///     }
+///     Err(e) => {
+///         println!("err Resp={:?}", e);
+///     }
+/// }
+/// ```
 
 impl<T> HttpsClientConnection<T> {
     /// Creates a new client connection.

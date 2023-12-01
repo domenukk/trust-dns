@@ -1,8 +1,8 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! record data enum variants
@@ -10,7 +10,6 @@
 
 #[cfg(test)]
 use core::convert::From;
-use core::net::IpAddr;
 use core::{cmp::Ordering, fmt};
 
 use alloc::vec::Vec;
@@ -20,12 +19,15 @@ use serde::{Deserialize, Serialize};
 use enum_as_inner::EnumAsInner;
 use tracing::{trace, warn};
 
+#[cfg(feature = "std")]
+use crate::rr::rdata::{SSHFP, TLSA};
 use crate::{
     error::{ProtoError, ProtoErrorKind, ProtoResult},
+    net::IpAddr,
     rr::{
         rdata::{
             A, AAAA, ANAME, CAA, CNAME, CSYNC, HINFO, HTTPS, MX, NAPTR, NS, NULL, OPENPGPKEY, OPT,
-            PTR, SOA, SRV, SSHFP, SVCB, TLSA, TXT,
+            PTR, SOA, SRV, SVCB, TXT,
         },
         record_type::RecordType,
         RecordData, RecordDataDecodable,
@@ -559,6 +561,7 @@ pub enum RData {
     /// ```
     SRV(SRV),
 
+    #[cfg(feature = "std")]
     /// [RFC 4255](https://tools.ietf.org/html/rfc4255#section-3.1)
     ///
     /// ```text
@@ -646,6 +649,7 @@ pub enum RData {
     /// ```
     SVCB(SVCB),
 
+    #[cfg(feature = "std")]
     /// [RFC 6698, DNS-Based Authentication for TLS](https://tools.ietf.org/html/rfc6698#section-2.1)
     ///
     /// ```text
@@ -685,10 +689,10 @@ pub enum RData {
     #[cfg_attr(docsrs, doc(cfg(feature = "dnssec")))]
     DNSSEC(DNSSECRData),
 
-    /// Unknown RecordData is for record types not supported by Trust-DNS
+    /// Unknown RecordData is for record types not supported by Hickory DNS
     Unknown {
         /// RecordType code
-        code: u16,
+        code: RecordType,
         /// RData associated to the record
         rdata: NULL,
     },
@@ -730,13 +734,15 @@ impl RData {
             Self::PTR(..) => RecordType::PTR,
             Self::SOA(..) => RecordType::SOA,
             Self::SRV(..) => RecordType::SRV,
+            #[cfg(feature = "std")]
             Self::SSHFP(..) => RecordType::SSHFP,
             Self::SVCB(..) => RecordType::SVCB,
+            #[cfg(feature = "std")]
             Self::TLSA(..) => RecordType::TLSA,
             Self::TXT(..) => RecordType::TXT,
             #[cfg(feature = "dnssec")]
             Self::DNSSEC(ref rdata) => DNSSECRData::to_record_type(rdata),
-            Self::Unknown { code, .. } => RecordType::Unknown(code),
+            Self::Unknown { code, .. } => code,
             Self::ZERO => RecordType::ZERO,
         }
     }
@@ -837,6 +843,7 @@ impl RData {
                 trace!("reading SRV");
                 SRV::read_data(decoder, length).map(Self::SRV)
             }
+            #[cfg(feature = "std")]
             RecordType::SSHFP => {
                 trace!("reading SSHFP");
                 SSHFP::read_data(decoder, length).map(Self::SSHFP)
@@ -845,6 +852,7 @@ impl RData {
                 trace!("reading SVCB");
                 SVCB::read_data(decoder, length).map(Self::SVCB)
             }
+            #[cfg(feature = "std")]
             RecordType::TLSA => {
                 trace!("reading TLSA");
                 TLSA::read_data(decoder, length).map(Self::TLSA)
@@ -858,7 +866,7 @@ impl RData {
             record_type => {
                 trace!("reading Unknown record: {}", record_type);
                 NULL::read_data(decoder, length).map(|rdata| Self::Unknown {
-                    code: record_type.into(),
+                    code: record_type,
                     rdata,
                 })
             }
@@ -970,8 +978,10 @@ impl BinEncodable for RData {
             Self::OPT(ref opt) => opt.emit(encoder),
             Self::SOA(ref soa) => soa.emit(encoder),
             Self::SRV(ref srv) => encoder.with_canonical_names(|encoder| srv.emit(encoder)),
+            #[cfg(feature = "std")]
             Self::SSHFP(ref sshfp) => encoder.with_canonical_names(|encoder| sshfp.emit(encoder)),
             Self::SVCB(ref svcb) => svcb.emit(encoder),
+            #[cfg(feature = "std")]
             Self::TLSA(ref tlsa) => encoder.with_canonical_names(|encoder| tlsa.emit(encoder)),
             Self::TXT(ref txt) => txt.emit(encoder),
             #[cfg(feature = "dnssec")]
@@ -1029,8 +1039,10 @@ impl fmt::Display for RData {
             Self::SOA(ref soa) => w(f, soa),
             // to_lowercase for rfc4034 and rfc6840
             Self::SRV(ref srv) => w(f, srv),
+            #[cfg(feature = "std")]
             Self::SSHFP(ref sshfp) => w(f, sshfp),
             Self::SVCB(ref svcb) => w(f, svcb),
+            #[cfg(feature = "std")]
             Self::TLSA(ref tlsa) => w(f, tlsa),
             Self::TXT(ref txt) => w(f, txt),
             #[cfg(feature = "dnssec")]
@@ -1076,7 +1088,10 @@ impl Ord for RData {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+    use std::println;
+
     use alloc::str::FromStr;
+    use alloc::string::ToString;
 
     use super::*;
     use crate::rr::domain::Name;
@@ -1271,11 +1286,12 @@ mod tests {
             RData::SRV(..) => RecordType::SRV,
             RData::SSHFP(..) => RecordType::SSHFP,
             RData::SVCB(..) => RecordType::SVCB,
+            #[cfg(feature = "std")]
             RData::TLSA(..) => RecordType::TLSA,
             RData::TXT(..) => RecordType::TXT,
             #[cfg(feature = "dnssec")]
             RData::DNSSEC(ref rdata) => rdata.to_record_type(),
-            RData::Unknown { code, .. } => RecordType::Unknown(code),
+            RData::Unknown { code, .. } => code,
             RData::ZERO => RecordType::ZERO,
         }
     }

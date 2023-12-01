@@ -1,8 +1,8 @@
 // Copyright 2015-2020 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! Error types for the crate
@@ -11,7 +11,7 @@
 
 use core::fmt;
 #[cfg(feature = "std")]
-use std::{io, sync};
+use std::io;
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
@@ -300,6 +300,11 @@ pub enum ProtoErrorKind {
     #[cfg(feature = "rustls")]
     #[error("rustls construction error: {0}")]
     RustlsError(#[from] rustls::Error),
+
+    /// No valid certificates found in the native root store.
+    #[cfg(all(feature = "native-certs", not(feature = "webpki-roots")))]
+    #[error("no valid certificates found in the native root store")]
+    NativeCerts,
 }
 
 /// The error type for errors that get returned in the crate
@@ -509,6 +514,8 @@ impl Clone for ProtoErrorKind {
             QuinnUnknownStreamError => QuinnUnknownStreamError,
             #[cfg(feature = "rustls")]
             RustlsError(ref e) => RustlsError(e.clone()),
+            #[cfg(all(feature = "native-certs", not(feature = "webpki-roots")))]
+            NativeCerts => NativeCerts,
         }
     }
 }
@@ -553,7 +560,7 @@ pub enum DnsSecErrorKind {
     Msg(String),
 
     // foreign
-    /// An error got returned by the trust-dns-proto crate
+    /// An error got returned by the hickory-proto crate
     #[error("proto error: {0}")]
     Proto(#[from] ProtoError),
 
@@ -706,6 +713,11 @@ pub mod not_openssl {
 #[cfg(not(feature = "ring"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "ring")))]
 pub mod not_ring {
+    #[cfg(all(feature = "unstable", not(feature = "std")))]
+    use core::error::Error;
+    #[cfg(feature = "std")]
+    use std::error::Error;
+
     #[derive(Clone, Copy, Debug)]
     pub struct KeyRejected;
 
@@ -718,15 +730,7 @@ pub mod not_ring {
         }
     }
 
-    #[cfg(feature = "std")]
-    impl std::error::Error for KeyRejected {
-        fn description(&self) -> &str {
-            "ring feature not enabled"
-        }
-    }
-
-    #[cfg(not(feature = "std"))]
-    impl core::error::Error for KeyRejected {
+    impl Error for KeyRejected {
         fn description(&self) -> &str {
             "ring feature not enabled"
         }
@@ -738,15 +742,7 @@ pub mod not_ring {
         }
     }
 
-    #[cfg(feature = "std")]
-    impl std::error::Error for Unspecified {
-        fn description(&self) -> &str {
-            "ring feature not enabled"
-        }
-    }
-
-    #[cfg(not(feature = "std"))]
-    impl core::error::Error for Unspecified {
+    impl Error for Unspecified {
         fn description(&self) -> &str {
             "ring feature not enabled"
         }

@@ -1,8 +1,8 @@
-use trust_dns_client::client::*;
-use trust_dns_client::proto::xfer::{DnsHandle, DnsRequest};
+use hickory_client::client::*;
+use hickory_client::proto::xfer::{DnsHandle, DnsRequest};
 #[cfg(feature = "dnssec")]
-use trust_dns_client::{op::Edns, rr::rdata::opt::EdnsOption};
-use trust_dns_server::authority::LookupOptions;
+use hickory_client::{op::Edns, rr::rdata::opt::EdnsOption};
+use hickory_server::authority::LookupOptions;
 
 #[derive(Clone)]
 pub struct MutMessageHandle<C: ClientHandle + Unpin> {
@@ -29,7 +29,7 @@ impl<C: ClientHandle + Unpin> DnsHandle for MutMessageHandle<C> {
     }
 
     #[allow(unused_mut)]
-    fn send<R: Into<DnsRequest> + Unpin>(&mut self, request: R) -> Self::Response {
+    fn send<R: Into<DnsRequest> + Unpin>(&self, request: R) -> Self::Response {
         let mut request = request.into();
 
         #[cfg(feature = "dnssec")]

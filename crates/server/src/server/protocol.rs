@@ -1,8 +1,8 @@
 // Copyright 2015-2022 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 use std::fmt;
@@ -23,6 +23,8 @@ pub enum Protocol {
     Https,
     /// Quic, DNS over Quic, aka DoQ (similar to DoH)
     Quic,
+    /// HTTP over Quic, DNS over HTTP/3, aka DoH3 (similar to DoH)
+    H3,
 }
 
 impl fmt::Display for Protocol {
@@ -34,6 +36,7 @@ impl fmt::Display for Protocol {
             Self::Dtls => "DTLS",
             Self::Https => "HTTPS",
             Self::Quic => "QUIC",
+            Self::H3 => "H3",
         };
 
         f.write_str(s)

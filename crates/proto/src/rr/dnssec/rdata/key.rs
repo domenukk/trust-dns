@@ -1,8 +1,8 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! public key record data for signing zone records
@@ -10,6 +10,7 @@
 
 use std::fmt;
 
+use alloc::vec::Vec;
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};
 
@@ -572,7 +573,7 @@ pub enum Protocol {
     /// Reserved for use with email
     #[deprecated = "Deprecated by RFC3445"]
     Email,
-    /// Reserved for use with DNSSEC (Trust-DNS only supports DNSKEY with DNSSEC)
+    /// Reserved for use with DNSSEC (Hickory DNS only supports DNSKEY with DNSSEC)
     DNSSEC,
     /// Reserved to refer to the Oakley/IPSEC
     #[deprecated = "Deprecated by RFC3445"]
@@ -924,6 +925,10 @@ impl fmt::Display for KEY {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
+
+    use std::println;
+
+    use alloc::vec::Vec;
 
     use super::*;
 

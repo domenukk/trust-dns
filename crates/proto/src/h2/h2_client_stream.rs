@@ -1,8 +1,8 @@
 // Copyright 2015-2018 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 use alloc::str::FromStr;
@@ -28,6 +28,7 @@ use tokio_rustls::{
 use tracing::{debug, warn};
 
 use crate::error::ProtoError;
+use crate::http::Version;
 use crate::iocompat::AsyncIoStdAsTokio;
 use crate::op::Message;
 use crate::tcp::{Connect, DnsTcpStream};
@@ -71,7 +72,8 @@ impl HttpsClientStream {
         };
 
         // build up the http request
-        let request = crate::https::request::new(&name_server_name, message.remaining());
+        let request =
+            crate::http::request::new(Version::Http2, &name_server_name, message.remaining());
 
         let request =
             request.map_err(|err| ProtoError::from(format!("bad http request: {err}")))?;
@@ -160,12 +162,12 @@ impl HttpsClientStream {
                             ProtoError::from(format!("ContentType header not a string: {err}"))
                         })
                     })
-                    .unwrap_or(Ok(crate::https::MIME_APPLICATION_DNS))?;
+                    .unwrap_or(Ok(crate::http::MIME_APPLICATION_DNS))?;
 
-                if content_type != crate::https::MIME_APPLICATION_DNS {
+                if content_type != crate::http::MIME_APPLICATION_DNS {
                     return Err(ProtoError::from(format!(
                         "ContentType unsupported (must be '{}'): '{}'",
-                        crate::https::MIME_APPLICATION_DNS,
+                        crate::http::MIME_APPLICATION_DNS,
                         content_type
                     )));
                 }
@@ -525,6 +527,7 @@ impl Future for HttpsClientResponse {
     }
 }
 
+#[cfg(any(feature = "webpki-roots", feature = "native-certs"))]
 #[cfg(test)]
 mod tests {
     use alloc::str::FromStr;
@@ -553,7 +556,7 @@ mod tests {
 
         let request = DnsRequest::new(request, DnsRequestOptions::default());
 
-        let mut client_config = client_config_tls12_webpki_roots();
+        let mut client_config = client_config_tls12();
         client_config.key_log = Arc::new(KeyLogFile::new());
 
         let https_builder = HttpsClientStreamBuilder::with_client_config(Arc::new(client_config));
@@ -618,7 +621,7 @@ mod tests {
 
         let request = DnsRequest::new(request, DnsRequestOptions::default());
 
-        let mut client_config = client_config_tls12_webpki_roots();
+        let mut client_config = client_config_tls12();
         client_config.key_log = Arc::new(KeyLogFile::new());
 
         let https_builder = HttpsClientStreamBuilder::with_client_config(Arc::new(client_config));
@@ -684,7 +687,7 @@ mod tests {
 
         let request = DnsRequest::new(request, DnsRequestOptions::default());
 
-        let client_config = client_config_tls12_webpki_roots();
+        let client_config = client_config_tls12();
         let https_builder = HttpsClientStreamBuilder::with_client_config(Arc::new(client_config));
         let connect = https_builder.build::<AsyncIoTokioAsStd<TokioTcpStream>>(
             cloudflare,
@@ -733,11 +736,32 @@ mod tests {
         );
     }
 
-    fn client_config_tls12_webpki_roots() -> ClientConfig {
-        use rustls::{OwnedTrustAnchor, RootCertStore};
+    fn client_config_tls12() -> ClientConfig {
+        use rustls::RootCertStore;
+        #[cfg_attr(
+            not(any(feature = "native-certs", feature = "webpki-roots")),
+            allow(unused_mut)
+        )]
         let mut root_store = RootCertStore::empty();
-        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-            OwnedTrustAnchor::from_subject_spki_name_constraints(
+        #[cfg(all(feature = "native-certs", not(feature = "webpki-roots")))]
+        {
+            let (added, ignored) = root_store
+                .add_parsable_certificates(&rustls_native_certs::load_native_certs().unwrap());
+
+            if ignored > 0 {
+                warn!(
+                    "failed to parse {} certificate(s) from the native root store",
+                    ignored
+                );
+            }
+
+            if added == 0 {
+                panic!("no valid certificates found in the native root store");
+            }
+        }
+        #[cfg(feature = "webpki-roots")]
+        root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
                 ta.subject,
                 ta.spki,
                 ta.name_constraints,

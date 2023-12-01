@@ -1,11 +1,22 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::{collections::BTreeMap, str::FromStr};
+use std::{
+    borrow::Cow,
+    collections::BTreeMap,
+    fs, mem,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
+
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use crate::{
     rr::{DNSClass, LowerName, Name, RData, Record, RecordSet, RecordType, RrKey},
@@ -116,13 +127,25 @@ use crate::{
 /// ;               Semicolon is used to start a comment; the remainder of
 ///                 the line is ignored.
 /// ```
-#[derive(Clone, Copy, Default)]
-pub struct Parser;
+pub struct Parser<'a> {
+    lexers: Vec<(Lexer<'a>, Option<PathBuf>)>,
+    origin: Option<Name>,
+}
 
-impl Parser {
+impl<'a> Parser<'a> {
     /// Returns a new Zone file parser
-    pub fn new() -> Self {
-        Self
+    ///
+    /// The `path` argument's parent directory is used to resolve relative `$INCLUDE` paths.
+    /// Relative `$INCLUDE` paths will yield an error if `path` is `None`.
+    pub fn new(
+        input: impl Into<Cow<'a, str>>,
+        path: Option<PathBuf>,
+        origin: Option<Name>,
+    ) -> Self {
+        Self {
+            lexers: vec![(Lexer::new(input), path)],
+            origin,
+        }
     }
 
     /// Parse a file from the Lexer
@@ -130,149 +153,196 @@ impl Parser {
     /// # Return
     ///
     /// A pair of the Zone origin name and a map of all Keys to RecordSets
-    pub fn parse(
-        &mut self,
-        lexer: Lexer<'_>,
-        origin: Option<Name>,
-    ) -> ParseResult<(Name, BTreeMap<RrKey, RecordSet>)> {
-        let mut lexer = lexer;
+    pub fn parse(mut self) -> ParseResult<(Name, BTreeMap<RrKey, RecordSet>)> {
+        let mut origin = self.origin;
         let mut records: BTreeMap<RrKey, RecordSet> = BTreeMap::new();
-
-        let mut origin: Option<Name> = origin;
         let mut class: DNSClass = DNSClass::IN;
         let mut current_name: Option<Name> = None;
         let mut rtype: Option<RecordType> = None;
         let mut ttl: Option<u32> = None;
         let mut state = State::StartLine;
+        let mut stack = self.lexers.len();
 
-        while let Some(t) = lexer.next_token()? {
-            state = match state {
-                State::StartLine => {
-                    // current_name is not reset on the next line b/c it might be needed from the previous
-                    rtype = None;
+        'outer: while let Some((lexer, path)) = self.lexers.last_mut() {
+            while let Some(t) = lexer.next_token()? {
+                state = match state {
+                    State::StartLine => {
+                        // current_name is not reset on the next line b/c it might be needed from the previous
+                        rtype = None;
 
-                    match t {
-                        // if Dollar, then $INCLUDE or $ORIGIN
-                        Token::Include => {
-                            return Err(ParseError::from(ParseErrorKind::Message("The parser does not support $INCLUDE. Consider inlining file before parsing")))
-                        },
-                        Token::Origin => State::Origin,
-                        Token::Ttl => State::Ttl,
+                        match t {
+                            // if Dollar, then $INCLUDE or $ORIGIN
+                            Token::Include => State::Include(None),
+                            Token::Origin => State::Origin,
+                            Token::Ttl => State::Ttl,
 
-                        // if CharData, then Name then ttl_class_type
-                        Token::CharData(data) => {
-                            current_name = Some(Name::parse(&data, origin.as_ref())?);
-                            State::TtlClassType
+                            // if CharData, then Name then ttl_class_type
+                            Token::CharData(data) => {
+                                current_name = Some(Name::parse(&data, origin.as_ref())?);
+                                State::TtlClassType
+                            }
+
+                            // @ is a placeholder for specifying the current origin
+                            Token::At => {
+                                current_name = origin.clone(); // TODO a COW or RC would reduce copies...
+                                State::TtlClassType
+                            }
+
+                            // if blank, then nothing or ttl_class_type
+                            Token::Blank => State::TtlClassType,
+                            Token::EOL => State::StartLine, // probably a comment
+                            _ => return Err(ParseErrorKind::UnexpectedToken(t).into()),
                         }
-
-                        // @ is a placeholder for specifying the current origin
-                        Token::At => {
-                            current_name = origin.clone(); // TODO a COW or RC would reduce copies...
-                            State::TtlClassType
-                        }
-
-                        // if blank, then nothing or ttl_class_type
-                        Token::Blank => State::TtlClassType,
-                        Token::EOL => State::StartLine, // probably a comment
-                        _ => return Err(ParseErrorKind::UnexpectedToken(t).into()),
                     }
-                }
-                State::Ttl => match t {
-                    Token::CharData(data) => {
-                        ttl = Some(Self::parse_time(&data)?);
-                        State::StartLine
-                    }
-                    _ => return Err(ParseErrorKind::UnexpectedToken(t).into()),
-                },
-                State::Origin => {
-                    match t {
+                    State::Ttl => match t {
                         Token::CharData(data) => {
-                            // TODO an origin was specified, should this be legal? definitely confusing...
-                            origin = Some(Name::parse(&data, None)?);
+                            ttl = Some(Self::parse_time(&data)?);
                             State::StartLine
                         }
                         _ => return Err(ParseErrorKind::UnexpectedToken(t).into()),
+                    },
+                    State::Origin => {
+                        match t {
+                            Token::CharData(data) => {
+                                // TODO an origin was specified, should this be legal? definitely confusing...
+                                origin = Some(Name::parse(&data, None)?);
+                                State::StartLine
+                            }
+                            _ => return Err(ParseErrorKind::UnexpectedToken(t).into()),
+                        }
                     }
-                }
-                State::Include => return Err(ParseError::from(ParseErrorKind::Message(
-                    "The parser does not support $INCLUDE. Consider inlining file before parsing",
-                ))),
-                State::TtlClassType => {
-                    match t {
-                        // if number, TTL
-                        // Token::Number(ref num) => ttl = Some(*num),
-                        // One of Class or Type (these cannot be overlapping!)
-                        Token::CharData(mut data) => {
-                            // if it's a number it's a ttl
-                            let result: ParseResult<u32> = Self::parse_time(&data);
-                            if result.is_ok() {
-                                ttl = result.ok();
-                                State::TtlClassType // hm, should this go to just ClassType?
-                            } else {
-                                // if can parse DNSClass, then class
-                                data.make_ascii_uppercase();
-                                let result = DNSClass::from_str(&data);
-                                if let Ok(parsed) = result {
-                                    class = parsed;
-                                    State::TtlClassType
+                    State::Include(include_path) => match (t, include_path) {
+                        (Token::CharData(data), None) => State::Include(Some(data)),
+                        (Token::EOL, Some(include_path)) => {
+                            // RFC1035 (section 5) does not specify how filename for $INCLUDE
+                            // should be resolved into file path. The underlying code implements the
+                            // following:
+                            // * if the path is absolute (relies on Path::is_absolute), it uses normalized path
+                            // * otherwise, it joins the path with parent root of the current file
+                            //
+                            // TODO: Inlining files specified using non-relative path might potentially introduce
+                            // security issue in some cases (e.g. when working with zone files from untrusted sources)
+                            // and should probably be configurable by user.
+
+                            if stack > MAX_INCLUDE_LEVEL {
+                                return Err(ParseErrorKind::Message(
+                                    "Max depth level for nested $INCLUDE is reached",
+                                )
+                                .into());
+                            }
+
+                            let include = Path::new(&include_path);
+                            let include = match (include.is_absolute(), path) {
+                                (true, _) => include.to_path_buf(),
+                                (false, Some(path)) => path
+                                    .parent()
+                                    .expect("file has to have parent folder")
+                                    .join(include),
+                                (false, None) => {
+                                    return Err(ParseErrorKind::Message(
+                                        "Relative $INCLUDE is not supported",
+                                    )
+                                    .into());
+                                }
+                            };
+
+                            let input = fs::read_to_string(&include)?;
+                            let lexer = Lexer::new(input);
+                            self.lexers.push((lexer, Some(include)));
+                            stack += 1;
+                            state = State::StartLine;
+                            continue 'outer;
+                        }
+                        (Token::CharData(_), Some(_)) => {
+                            return Err(ParseErrorKind::Message(
+                                "Domain name for $INCLUDE is not supported",
+                            )
+                            .into());
+                        }
+                        (t, _) => {
+                            return Err(ParseErrorKind::UnexpectedToken(t).into());
+                        }
+                    },
+                    State::TtlClassType => {
+                        match t {
+                            // if number, TTL
+                            // Token::Number(ref num) => ttl = Some(*num),
+                            // One of Class or Type (these cannot be overlapping!)
+                            Token::CharData(mut data) => {
+                                // if it's a number it's a ttl
+                                let result: ParseResult<u32> = Self::parse_time(&data);
+                                if result.is_ok() {
+                                    ttl = result.ok();
+                                    State::TtlClassType // hm, should this go to just ClassType?
                                 } else {
-                                    // if can parse RecordType, then RecordType
-                                    rtype = Some(RecordType::from_str(&data)?);
-                                    State::Record(vec![])
+                                    // if can parse DNSClass, then class
+                                    data.make_ascii_uppercase();
+                                    let result = DNSClass::from_str(&data);
+                                    if let Ok(parsed) = result {
+                                        class = parsed;
+                                        State::TtlClassType
+                                    } else {
+                                        // if can parse RecordType, then RecordType
+                                        rtype = Some(RecordType::from_str(&data)?);
+                                        State::Record(vec![])
+                                    }
                                 }
                             }
+                            // could be nothing if started with blank and is a comment, i.e. EOL
+                            Token::EOL => {
+                                State::StartLine // next line
+                            }
+                            _ => return Err(ParseErrorKind::UnexpectedToken(t).into()),
                         }
-                        // could be nothing if started with blank and is a comment, i.e. EOL
-                        Token::EOL => {
-                            State::StartLine // next line
-                        }
-                        _ => return Err(ParseErrorKind::UnexpectedToken(t).into()),
                     }
-                }
-                State::Record(record_parts) => {
-                    // b/c of ownership rules, perhaps, just collect all the RData components as a list of
-                    //  tokens to pass into the processor
-                    match t {
-                        Token::EOL => {
-                            Self::flush_record(
-                                record_parts,
-                                &origin,
-                                &current_name,
-                                rtype,
-                                &mut ttl,
-                                class,
-                                &mut records,
-                            )?;
-                            State::StartLine
+                    State::Record(record_parts) => {
+                        // b/c of ownership rules, perhaps, just collect all the RData components as a list of
+                        //  tokens to pass into the processor
+                        match t {
+                            Token::EOL => {
+                                Self::flush_record(
+                                    record_parts,
+                                    &origin,
+                                    &current_name,
+                                    rtype,
+                                    &mut ttl,
+                                    class,
+                                    &mut records,
+                                )?;
+                                State::StartLine
+                            }
+                            Token::CharData(part) => {
+                                let mut record_parts = record_parts;
+                                record_parts.push(part);
+                                State::Record(record_parts)
+                            }
+                            // TODO: we should not tokenize the list...
+                            Token::List(list) => {
+                                let mut record_parts = record_parts;
+                                record_parts.extend(list);
+                                State::Record(record_parts)
+                            }
+                            _ => return Err(ParseErrorKind::UnexpectedToken(t).into()),
                         }
-                        Token::CharData(part) => {
-                            let mut record_parts = record_parts;
-                            record_parts.push(part);
-                            State::Record(record_parts)
-                        }
-                        // TODO: we should not tokenize the list...
-                        Token::List(list) => {
-                            let mut record_parts = record_parts;
-                            record_parts.extend(list);
-                            State::Record(record_parts)
-                        }
-                        _ => return Err(ParseErrorKind::UnexpectedToken(t).into()),
                     }
-                }
+                };
             }
-        }
 
-        //Extra flush at the end for the case of missing endline
-        if let State::Record(record_parts) = state {
-            Self::flush_record(
-                record_parts,
-                &origin,
-                &current_name,
-                rtype,
-                &mut ttl,
-                class,
-                &mut records,
-            )?;
+            // Extra flush at the end for the case of missing endline
+            if let State::Record(record_parts) = mem::replace(&mut state, State::StartLine) {
+                Self::flush_record(
+                    record_parts,
+                    &origin,
+                    &current_name,
+                    rtype,
+                    &mut ttl,
+                    class,
+                    &mut records,
+                )?;
+            }
+
+            stack -= 1;
+            self.lexers.pop();
         }
 
         //
@@ -365,7 +435,7 @@ impl Parser {
 
     /// parses the string following the rules from:
     ///  <https://tools.ietf.org/html/rfc2308> (NXCaching RFC) and
-    ///  <http://www.zytrax.com/books/dns/apa/time.html>
+    ///  <https://www.zytrax.com/books/dns/apa/time.html>
     ///
     /// default is seconds
     /// #s = seconds = # x 1 seconds (really!)
@@ -378,7 +448,7 @@ impl Parser {
     ///
     /// # Example
     /// ```
-    /// use trust_dns_proto::serialize::txt::Parser;
+    /// use hickory_proto::serialize::txt::Parser;
     ///
     /// assert_eq!(Parser::parse_time("0").unwrap(),  0);
     /// assert!(Parser::parse_time("s").is_err());
@@ -456,12 +526,17 @@ enum State {
     TtlClassType, // [<TTL>] [<class>] <type>,
     Ttl,          // $TTL <time>
     Record(Vec<String>),
-    Include, // $INCLUDE <filename>
+    Include(Option<String>), // $INCLUDE <filename>
     Origin,
 }
 
+/// Max traversal depth for $INCLUDE files
+const MAX_INCLUDE_LEVEL: usize = 256;
+
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use super::*;
 
     #[test]
@@ -473,8 +548,7 @@ mod tests {
  faulty-record-type 60 IN A 1.2.3.4
 "#;
 
-        let lexer = Lexer::new(zone_data);
-        let result = Parser::new().parse(lexer, Some(domain));
+        let result = Parser::new(zone_data, None, Some(domain)).parse();
         assert!(
             result.is_err()
                 & result

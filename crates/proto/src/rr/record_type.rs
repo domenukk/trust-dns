@@ -1,8 +1,8 @@
 // Copyright 2015-2021 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! record type definitions
@@ -102,10 +102,12 @@ pub enum RecordType {
     SOA,
     /// [RFC 2782](https://tools.ietf.org/html/rfc2782) Service locator
     SRV,
+    #[cfg(feature = "std")]
     /// [RFC 4255](https://tools.ietf.org/html/rfc4255) SSH Public Key Fingerprint
     SSHFP,
     /// [RFC draft-ietf-dnsop-svcb-https-03](https://tools.ietf.org/html/draft-ietf-dnsop-svcb-httpssvc-03) DNS SVCB and HTTPS RRs
     SVCB,
+    #[cfg(feature = "std")]
     //  TA,         // 32768 N/A DNSSEC Trust Authorities
     //  TKEY,       // 249 RFC 2930 Secret key record
     /// [RFC 6698](https://tools.ietf.org/html/rfc6698) TLSA certificate association
@@ -191,7 +193,7 @@ impl FromStr for RecordType {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::record_type::RecordType;
+    /// use hickory_proto::rr::record_type::RecordType;
     ///
     /// let var: RecordType = RecordType::from_str("A").unwrap();
     /// assert_eq!(RecordType::A, var);
@@ -227,8 +229,10 @@ impl FromStr for RecordType {
             "SIG" => Ok(Self::SIG),
             "SOA" => Ok(Self::SOA),
             "SRV" => Ok(Self::SRV),
+            #[cfg(feature = "std")]
             "SSHFP" => Ok(Self::SSHFP),
             "SVCB" => Ok(Self::SVCB),
+            #[cfg(feature = "std")]
             "TLSA" => Ok(Self::TLSA),
             "TXT" => Ok(Self::TXT),
             "TSIG" => Ok(Self::TSIG),
@@ -242,7 +246,7 @@ impl From<u16> for RecordType {
     /// Convert from `u16` to `RecordType`
     ///
     /// ```
-    /// use trust_dns_proto::rr::record_type::RecordType;
+    /// use hickory_proto::rr::record_type::RecordType;
     ///
     /// let var = RecordType::from(1);
     /// assert_eq!(RecordType::A, var);
@@ -251,7 +255,7 @@ impl From<u16> for RecordType {
         match value {
             1 => Self::A,
             28 => Self::AAAA,
-            // TODO: wrong value here, see https://github.com/bluejekyll/trust-dns/issues/723
+            // TODO: wrong value here, see https://github.com/hickory-dns/hickory-dns/issues/723
             65305 => Self::ANAME,
             255 => Self::ANY,
             251 => Self::IXFR,
@@ -280,8 +284,10 @@ impl From<u16> for RecordType {
             24 => Self::SIG,
             6 => Self::SOA,
             33 => Self::SRV,
+            #[cfg(feature = "std")]
             44 => Self::SSHFP,
             64 => Self::SVCB,
+            #[cfg(feature = "std")]
             52 => Self::TLSA,
             250 => Self::TSIG,
             16 => Self::TXT,
@@ -314,7 +320,7 @@ impl<'r> BinDecodable<'r> for RecordType {
 /// Convert from `RecordType` to `&str`
 ///
 /// ```
-/// use trust_dns_proto::rr::record_type::RecordType;
+/// use hickory_proto::rr::record_type::RecordType;
 ///
 /// let var: &'static str = From::from(RecordType::A);
 /// assert_eq!("A", var);
@@ -355,8 +361,10 @@ impl From<RecordType> for &'static str {
             RecordType::SIG => "SIG",
             RecordType::SOA => "SOA",
             RecordType::SRV => "SRV",
+            #[cfg(feature = "std")]
             RecordType::SSHFP => "SSHFP",
             RecordType::SVCB => "SVCB",
+            #[cfg(feature = "std")]
             RecordType::TLSA => "TLSA",
             RecordType::TSIG => "TSIG",
             RecordType::TXT => "TXT",
@@ -369,7 +377,7 @@ impl From<RecordType> for &'static str {
 /// Convert from `RecordType` to `u16`
 ///
 /// ```
-/// use trust_dns_proto::rr::record_type::RecordType;
+/// use hickory_proto::rr::record_type::RecordType;
 ///
 /// let var: u16 = RecordType::A.into();
 /// assert_eq!(1, var);
@@ -379,7 +387,7 @@ impl From<RecordType> for u16 {
         match rt {
             RecordType::A => 1,
             RecordType::AAAA => 28,
-            // TODO: wrong value here, see https://github.com/bluejekyll/trust-dns/issues/723
+            // TODO: wrong value here, see https://github.com/hickory-dns/hickory-dns/issues/723
             RecordType::ANAME => 65305,
             RecordType::ANY => 255,
             RecordType::AXFR => 252,
@@ -408,8 +416,10 @@ impl From<RecordType> for u16 {
             RecordType::SIG => 24,
             RecordType::SOA => 6,
             RecordType::SRV => 33,
+            #[cfg(feature = "std")]
             RecordType::SSHFP => 44,
             RecordType::SVCB => 64,
+            #[cfg(feature = "std")]
             RecordType::TLSA => 52,
             RecordType::TSIG => 250,
             RecordType::TXT => 16,
@@ -442,6 +452,8 @@ impl Display for RecordType {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
+
+    use std::println;
 
     use super::*;
 
@@ -510,7 +522,9 @@ mod tests {
             "PTR",
             "SOA",
             "SRV",
+            #[cfg(feature = "std")]
             "SSHFP",
+            #[cfg(feature = "std")]
             "TLSA",
             "TXT",
             "ANY",

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -251,9 +251,9 @@ impl<'r> BinDecodable<'r> for Query {
                 decoder.read_u16()?.unverified(/*DNSClass::from_u16 will verify the value*/);
             if query_class_value & MDNS_UNICAST_RESPONSE > 0 {
                 mdns_unicast_response = true;
-                DNSClass::from_u16(query_class_value & !MDNS_UNICAST_RESPONSE)?
+                DNSClass::from(query_class_value & !MDNS_UNICAST_RESPONSE)
             } else {
-                DNSClass::from_u16(query_class_value)?
+                DNSClass::from(query_class_value)
             }
         };
 

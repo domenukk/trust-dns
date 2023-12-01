@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,13 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#![cfg(feature = "toml")]
+
 use std::env;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use trust_dns_server::authority::ZoneType;
-use trust_dns_server::config::*;
+use hickory_server::authority::ZoneType;
+use hickory_server::config::*;
 
 #[test]
 fn test_read_config() {
@@ -105,30 +108,28 @@ fn test_read_config() {
 
 #[test]
 fn test_parse_toml() {
-    let config: Config = "listen_port = 2053".parse().unwrap();
+    let config = Config::from_toml("listen_port = 2053").unwrap();
     assert_eq!(config.get_listen_port(), 2053);
 
-    let config: Config = "listen_addrs_ipv4 = [\"0.0.0.0\"]".parse().unwrap();
+    let config = Config::from_toml("listen_addrs_ipv4 = [\"0.0.0.0\"]").unwrap();
     assert_eq!(
         config.get_listen_addrs_ipv4(),
         Ok(vec![Ipv4Addr::new(0, 0, 0, 0)])
     );
 
-    let config: Config = "listen_addrs_ipv4 = [\"0.0.0.0\", \"127.0.0.1\"]"
-        .parse()
-        .unwrap();
+    let config = Config::from_toml("listen_addrs_ipv4 = [\"0.0.0.0\", \"127.0.0.1\"]").unwrap();
     assert_eq!(
         config.get_listen_addrs_ipv4(),
         Ok(vec![Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(127, 0, 0, 1)])
     );
 
-    let config: Config = "listen_addrs_ipv6 = [\"::0\"]".parse().unwrap();
+    let config = Config::from_toml("listen_addrs_ipv6 = [\"::0\"]").unwrap();
     assert_eq!(
         config.get_listen_addrs_ipv6(),
         Ok(vec![Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)])
     );
 
-    let config: Config = "listen_addrs_ipv6 = [\"::0\", \"::1\"]".parse().unwrap();
+    let config = Config::from_toml("listen_addrs_ipv6 = [\"::0\", \"::1\"]").unwrap();
     assert_eq!(
         config.get_listen_addrs_ipv6(),
         Ok(vec![
@@ -137,23 +138,24 @@ fn test_parse_toml() {
         ])
     );
 
-    let config: Config = "tcp_request_timeout = 25".parse().unwrap();
+    let config = Config::from_toml("tcp_request_timeout = 25").unwrap();
     assert_eq!(config.get_tcp_request_timeout(), Duration::from_secs(25));
 
-    let config: Config = "log_level = \"Debug\"".parse().unwrap();
+    let config = Config::from_toml("log_level = \"Debug\"").unwrap();
     assert_eq!(config.get_log_level(), tracing::Level::DEBUG);
 
-    let config: Config = "directory = \"/dev/null\"".parse().unwrap();
+    let config = Config::from_toml("directory = \"/dev/null\"").unwrap();
     assert_eq!(config.get_directory(), Path::new("/dev/null"));
 }
 
 #[cfg(feature = "dnssec")]
 #[test]
 fn test_parse_zone_keys() {
-    use trust_dns_proto::rr::dnssec::Algorithm;
-    use trust_dns_proto::rr::Name;
+    use hickory_proto::rr::dnssec::Algorithm;
+    use hickory_proto::rr::Name;
 
-    let config: Config = "
+    let config = Config::from_toml(
+        "
 [[zones]]
 zone = \"example.com\"
 zone_type = \"Primary\"
@@ -173,9 +175,8 @@ key_path = \"/path/to/my_rsa.pem\"
 algorithm = \
          \"RSASHA256\"
 signer_name = \"ns.example.com.\"
-
-"
-    .parse()
+",
+    )
     .unwrap();
     assert_eq!(
         config.get_zones()[0].get_keys()[0].key_path(),
@@ -218,16 +219,16 @@ signer_name = \"ns.example.com.\"
 #[cfg(feature = "dnssec")]
 fn test_parse_tls() {
     // defaults
-    let config: Config = "".parse().unwrap();
+    let config = Config::from_toml("").unwrap();
 
     assert_eq!(config.get_tls_listen_port(), 853);
     assert_eq!(config.get_tls_cert(), None);
 
-    let config: Config = "
-tls_cert = { path = \"path/to/some.pkcs12\", endpoint_name = \"ns.example.com\" }
+    let config = Config::from_toml(
+        "tls_cert = { path = \"path/to/some.pkcs12\", endpoint_name = \"ns.example.com\" }
 tls_listen_port = 8853
-  "
-    .parse()
+  ",
+    )
     .unwrap();
 
     assert_eq!(config.get_tls_listen_port(), 8853);
@@ -270,5 +271,5 @@ define_test_config!(ipv4_only);
 define_test_config!(ipv6_only);
 define_test_config!(openssl_dnssec);
 define_test_config!(ring_dnssec);
-#[cfg(feature = "trust-dns-resolver")]
+#[cfg(feature = "hickory-resolver")]
 define_test_config!(example_forwarder);

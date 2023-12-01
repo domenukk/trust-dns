@@ -1,8 +1,8 @@
 // Copyright 2015-2017 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! class of DNS operations, in general always IN for internet
@@ -38,6 +38,8 @@ pub enum DNSClass {
     /// Special class for OPT Version, it was overloaded for EDNS - RFC 6891
     /// From the RFC: `Values lower than 512 MUST be treated as equal to 512`
     OPT(u16),
+    /// Unknown DNSClass was parsed
+    Unknown(u16),
 }
 
 impl FromStr for DNSClass {
@@ -47,7 +49,7 @@ impl FromStr for DNSClass {
     ///
     /// ```
     /// use alloc::str::FromStr;
-    /// use trust_dns_proto::rr::dns_class::DNSClass;
+    /// use hickory_proto::rr::dns_class::DNSClass;
     ///
     /// let var: DNSClass = DNSClass::from_str("IN").unwrap();
     /// assert_eq!(DNSClass::IN, var);
@@ -69,11 +71,12 @@ impl DNSClass {
     /// Convert from `u16` to `DNSClass`
     ///
     /// ```
-    /// use trust_dns_proto::rr::dns_class::DNSClass;
+    /// use hickory_proto::rr::dns_class::DNSClass;
     ///
     /// let var = DNSClass::from_u16(1).unwrap();
     /// assert_eq!(DNSClass::IN, var);
     /// ```
+    #[deprecated(note = "use u16::into instead, this is now infallible")]
     pub fn from_u16(value: u16) -> ProtoResult<Self> {
         match value {
             1 => Ok(Self::IN),
@@ -81,7 +84,7 @@ impl DNSClass {
             4 => Ok(Self::HS),
             254 => Ok(Self::NONE),
             255 => Ok(Self::ANY),
-            _ => Err(ProtoErrorKind::UnknownDnsClassValue(value).into()),
+            _ => Ok(Self::Unknown(value)),
         }
     }
 
@@ -101,9 +104,11 @@ impl BinEncodable for DNSClass {
 
 impl<'r> BinDecodable<'r> for DNSClass {
     fn read(decoder: &mut BinDecoder<'_>) -> ProtoResult<Self> {
-        Self::from_u16(
+        let this = Self::from(
             decoder.read_u16()?.unverified(/*DNSClass is verified as safe in processing this*/),
-        )
+        );
+
+        Ok(this)
     }
 }
 
@@ -112,7 +117,7 @@ impl<'r> BinDecodable<'r> for DNSClass {
 /// Convert from `DNSClass` to `&str`
 ///
 /// ```
-/// use trust_dns_proto::rr::dns_class::DNSClass;
+/// use hickory_proto::rr::dns_class::DNSClass;
 ///
 /// let var: &'static str = DNSClass::IN.into();
 /// assert_eq!("IN", var);
@@ -126,6 +131,28 @@ impl From<DNSClass> for &'static str {
             DNSClass::NONE => "NONE",
             DNSClass::ANY => "ANY",
             DNSClass::OPT(_) => "OPT",
+            DNSClass::Unknown(_) => "UNKNOWN",
+        }
+    }
+}
+
+/// Convert from `u16` to `DNSClass`
+///
+/// ```
+/// use hickory_proto::rr::dns_class::DNSClass;
+///
+/// let var: DNSClass = 1u16.into();
+/// assert_eq!(DNSClass::IN, var);
+/// ```
+impl From<u16> for DNSClass {
+    fn from(value: u16) -> Self {
+        match value {
+            1 => Self::IN,
+            3 => Self::CH,
+            4 => Self::HS,
+            254 => Self::NONE,
+            255 => Self::ANY,
+            _ => Self::Unknown(value),
         }
     }
 }
@@ -133,7 +160,7 @@ impl From<DNSClass> for &'static str {
 /// Convert from `DNSClass` to `u16`
 ///
 /// ```
-/// use trust_dns_proto::rr::dns_class::DNSClass;
+/// use hickory_proto::rr::dns_class::DNSClass;
 ///
 /// let var: u16 = DNSClass::IN.into();
 /// assert_eq!(1, var);
@@ -148,6 +175,7 @@ impl From<DNSClass> for u16 {
             DNSClass::ANY => 255,
             // see https://tools.ietf.org/html/rfc6891#section-6.1.2
             DNSClass::OPT(max_payload_len) => max_payload_len.max(512),
+            DNSClass::Unknown(unknown) => unknown,
         }
     }
 }

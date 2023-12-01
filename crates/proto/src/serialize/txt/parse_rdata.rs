@@ -1,11 +1,13 @@
 // Copyright 2015-2023 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! record data enum variants
+
+use alloc::vec::Vec;
 
 #[cfg(feature = "dnssec")]
 use crate::rr::dnssec::rdata::DNSSECRData;
@@ -140,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_a() {
-        let tokens = vec!["192.168.0.1"];
+        let tokens = ["192.168.0.1"];
         let name = Name::from_str("example.com.").unwrap();
         let record =
             RData::parse(RecordType::A, tokens.iter().map(AsRef::as_ref), Some(&name)).unwrap();
@@ -158,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_aaaa() {
-        let tokens = vec!["::1"];
+        let tokens = ["::1"];
         let name = Name::from_str("example.com.").unwrap();
         let record = RData::parse(
             RecordType::AAAA,
@@ -191,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_csync() {
-        let tokens = vec!["123", "1", "A", "NS"];
+        let tokens = ["123", "1", "A", "NS"];
         let name = Name::from_str("example.com.").unwrap();
         let record = RData::parse(
             RecordType::CSYNC,
@@ -262,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_any() {
-        let tokens = vec!["test"];
+        let tokens = ["test"];
         let name = Name::from_str("example.com.").unwrap();
         let result = RData::parse(
             RecordType::ANY,
@@ -287,7 +289,7 @@ mod tests {
             RecordType::RRSIG,
         ];
 
-        let tokens = vec!["test"];
+        let tokens = ["test"];
 
         let name = Name::from_str("example.com.").unwrap();
 

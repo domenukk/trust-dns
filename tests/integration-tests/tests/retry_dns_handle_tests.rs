@@ -5,12 +5,12 @@ use std::sync::{
 
 use futures::{executor::block_on, future, stream, Stream};
 
-use trust_dns_proto::{
+use hickory_proto::{
     op::{Message, MessageType, OpCode, ResponseCode},
     xfer::{DnsRequest, DnsResponse, FirstAnswer},
     DnsHandle, RetryDnsHandle,
 };
-use trust_dns_resolver::error::ResolveError;
+use hickory_resolver::error::ResolveError;
 
 #[derive(Clone)]
 struct TestClient {
@@ -23,7 +23,7 @@ impl DnsHandle for TestClient {
     type Response = Box<dyn Stream<Item = Result<DnsResponse, Self::Error>> + Send + Unpin>;
     type Error = ResolveError;
 
-    fn send<R: Into<DnsRequest>>(&mut self, _: R) -> Self::Response {
+    fn send<R: Into<DnsRequest>>(&self, _: R) -> Self::Response {
         let i = self.attempts.load(Ordering::SeqCst);
 
         if i > self.retries || self.retries - i == 0 {
@@ -42,7 +42,7 @@ impl DnsHandle for TestClient {
 // The RetryDnsHandle should retry the same nameserver on IO errors, e.g. timeouts.
 #[test]
 fn retry_on_retryable_error() {
-    let mut handle = RetryDnsHandle::new(
+    let handle = RetryDnsHandle::new(
         TestClient {
             retries: 1,
             error_response: ResolveError::from(std::io::Error::from(std::io::ErrorKind::TimedOut)),
@@ -66,7 +66,7 @@ fn dont_retry_on_negative_response() {
         .set_response_code(ResponseCode::NoError);
     let error = ResolveError::from_response(DnsResponse::from_message(response).unwrap(), false)
         .expect_err("NODATA should be an error");
-    let mut client = RetryDnsHandle::new(
+    let client = RetryDnsHandle::new(
         TestClient {
             retries: 1,
             error_response: error,

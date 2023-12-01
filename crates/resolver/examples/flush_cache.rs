@@ -1,6 +1,5 @@
 #![recursion_limit = "128"]
 
-#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
 fn main() {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -11,9 +10,8 @@ fn main() {
         });
 }
 
-#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
 async fn tokio_main() {
-    use trust_dns_resolver::{name_server::TokioConnectionProvider, TokioAsyncResolver};
+    use hickory_resolver::{name_server::TokioConnectionProvider, TokioAsyncResolver};
 
     let resolver = {
         // To make this independent, if targeting macOS, BSD, Linux, or Windows, we can use the system's configuration:
@@ -27,7 +25,7 @@ async fn tokio_main() {
         #[cfg(not(any(unix, windows)))]
         {
             // Directly reference the config types
-            use trust_dns_resolver::config::{ResolverConfig, ResolverOpts};
+            use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 
             // Get a new resolver with the google nameservers as the upstream recursive resolvers
             AsyncResolver::tokio(
@@ -41,7 +39,7 @@ async fn tokio_main() {
     .expect("failed to create resolver");
 
     // Create some futures representing name lookups.
-    let names = ["trust-dns.org.", "estada.ch.", "wikipedia.org."];
+    let names = ["hickory-dns.org.", "estada.ch.", "wikipedia.org."];
 
     let first_resolve = resolve_list(&names, &*resolver).await;
     let cached_resolve = resolve_list(&names, &*resolver).await;
@@ -57,10 +55,9 @@ async fn tokio_main() {
     drop(resolver);
 }
 
-#[cfg(all(feature = "tokio-runtime", feature = "system-config"))]
-async fn resolve_list<P: trust_dns_resolver::name_server::ConnectionProvider>(
+async fn resolve_list<P: hickory_resolver::name_server::ConnectionProvider>(
     names: &[&str],
-    resolver: &trust_dns_resolver::AsyncResolver<P>,
+    resolver: &hickory_resolver::AsyncResolver<P>,
 ) -> tokio::time::Duration {
     use tokio::time::Instant;
     let start_time = Instant::now();
@@ -90,11 +87,6 @@ async fn resolve_list<P: trust_dns_resolver::name_server::ConnectionProvider>(
     }
     println!();
     start_time.elapsed()
-}
-
-#[cfg(not(all(feature = "tokio-runtime", feature = "system-config")))]
-fn main() {
-    println!("tokio-runtime feature must be enabled")
 }
 
 #[test]

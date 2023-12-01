@@ -1,8 +1,8 @@
 // Copyright 2015-2017 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! System configuration loading
@@ -21,23 +21,24 @@ use std::time::Duration;
 
 use resolv_conf;
 
-use crate::config::*;
+use crate::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
+use crate::error::ResolveResult;
 use crate::proto::rr::Name;
 
 const DEFAULT_PORT: u16 = 53;
 
-pub fn read_system_conf() -> io::Result<(ResolverConfig, ResolverOpts)> {
+pub fn read_system_conf() -> ResolveResult<(ResolverConfig, ResolverOpts)> {
     read_resolv_conf("/etc/resolv.conf")
 }
 
-fn read_resolv_conf<P: AsRef<Path>>(path: P) -> io::Result<(ResolverConfig, ResolverOpts)> {
+fn read_resolv_conf<P: AsRef<Path>>(path: P) -> ResolveResult<(ResolverConfig, ResolverOpts)> {
     let mut data = String::new();
     let mut file = File::open(path)?;
     file.read_to_string(&mut data)?;
     parse_resolv_conf(&data)
 }
 
-pub fn parse_resolv_conf<T: AsRef<[u8]>>(data: T) -> io::Result<(ResolverConfig, ResolverOpts)> {
+pub fn parse_resolv_conf<T: AsRef<[u8]>>(data: T) -> ResolveResult<(ResolverConfig, ResolverOpts)> {
     let parsed_conf = resolv_conf::Config::parse(&data).map_err(|e| {
         io::Error::new(
             io::ErrorKind::Other,
@@ -50,7 +51,7 @@ pub fn parse_resolv_conf<T: AsRef<[u8]>>(data: T) -> io::Result<(ResolverConfig,
 // TODO: use a custom parsing error type maybe?
 fn into_resolver_config(
     parsed_config: resolv_conf::Config,
-) -> io::Result<(ResolverConfig, ResolverOpts)> {
+) -> ResolveResult<(ResolverConfig, ResolverOpts)> {
     let domain = if let Some(domain) = parsed_config.get_system_domain() {
         // The system domain name maybe appear to be valid to the resolv_conf
         // crate but actually be invalid. For example, if the hostname is "matt.schulte's computer"
@@ -90,6 +91,11 @@ fn into_resolver_config(
     // search
     let mut search = vec![];
     for search_domain in parsed_config.get_last_search_or_domain() {
+        // Ignore invalid search domains
+        if search_domain == "--" {
+            continue;
+        }
+
         search.push(Name::from_str_relaxed(search_domain).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::Other,
@@ -170,6 +176,29 @@ mod tests {
         cfg.add_search(Name::from_str("localnet.").unwrap());
         assert_eq!(cfg.search(), parsed.0.search());
         assert_eq!(ResolverOpts::default(), parsed.1);
+    }
+
+    #[test]
+    fn test_skips_invalid_search() {
+        let parsed =
+            parse_resolv_conf("\n\nnameserver 127.0.0.53\noptions edns0 trust-ad\nsearch -- lan\n")
+                .expect("failed");
+        let mut cfg = empty_config();
+
+        {
+            let nameservers = nameserver_config("127.0.0.53");
+            cfg.add_name_server(nameservers[0].clone());
+            cfg.add_name_server(nameservers[1].clone());
+            assert_eq!(cfg.name_servers(), parsed.0.name_servers());
+            assert_eq!(ResolverOpts::default(), parsed.1);
+        }
+
+        // This is the important part, that the invalid `--` is skipped during parsing
+        {
+            cfg.add_search(Name::from_str("lan").unwrap());
+            assert_eq!(cfg.search(), parsed.0.search());
+            assert_eq!(ResolverOpts::default(), parsed.1);
+        }
     }
 
     #[test]

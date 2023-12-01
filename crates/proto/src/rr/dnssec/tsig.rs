@@ -1,8 +1,8 @@
 // Copyright 2015-2019 Benjamin Fry <benjaminfry@me.com>
 //
 // Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// https://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
 //! Trust dns implementation of Secret Key Transaction Authentication for DNS (TSIG)
@@ -13,7 +13,9 @@
 //! - Mac checking don't support HMAC truncation with TSIG (pedantic constant time verification)
 //! - Time checking not in TSIG implementation but in caller
 
+use alloc::boxed::Box;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use std::ops::Range;
 
 use tracing::debug;
@@ -145,7 +147,7 @@ impl TSigner {
         //    this is to be pedantic about constant time HMAC validation (prevent timing attacks) as well as any security
         //    concerns about MAC truncation and collisions.
         if tsig.mac().len() < tsig.algorithm().output_len()? {
-            return Err(ProtoError::from("Please file an issue with https://github.com/bluejekyll/trust-dns to support truncated HMACs with TSIG"));
+            return Err(ProtoError::from("Please file an issue with https://github.com/hickory-dns/hickory-dns to support truncated HMACs with TSIG"));
         }
 
         // verify the MAC
