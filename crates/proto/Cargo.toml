@@ -31,6 +31,7 @@ maintenance = { status = "actively-developed" }
 
 [features]
 std = [
+    "data-encoding/std",
     "futures-channel/std",
     "futures-io/std",
     "futures-util/std",
@@ -38,6 +39,8 @@ std = [
     "rand/std",
     "ring/std",
     "thiserror/std",
+    "tracing/std",
+    "tracing-subscriber/std",
     "url/std",
 ]
 
@@ -85,8 +88,7 @@ testing = []
 
 text-parsing = []
 tokio-runtime = ["tokio/net", "tokio/rt", "tokio/time", "tokio/rt-multi-thread"]
-#default = ["tokio-runtime", "std"]
-default = ["unstable"]
+default = ["tokio-runtime", "std"]
 
 serde-config = ["serde", "url/serde"]
 

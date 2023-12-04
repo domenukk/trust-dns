@@ -155,8 +155,6 @@ impl Nsec3HashAlgorithm {
     #[cfg(any(feature = "openssl", feature = "ring"))]
     #[cfg_attr(docsrs, doc(cfg(any(feature = "openssl", feature = "ring"))))]
     pub fn hash(self, salt: &[u8], name: &Name, iterations: u16) -> ProtoResult<Digest> {
-        use alloc::vec::Vec;
-
         match self {
             // if there ever is more than just SHA1 support, this should be a genericized method
             Self::SHA1 => {

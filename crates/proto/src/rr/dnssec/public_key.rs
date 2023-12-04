@@ -530,6 +530,8 @@ impl PublicKey for PublicKeyBuf {
 #[cfg(all(not(feature = "ring"), feature = "openssl"))]
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     #[cfg(feature = "openssl")]
     #[test]
     fn test_asn1_emit_integer() {

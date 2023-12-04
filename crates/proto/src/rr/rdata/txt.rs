@@ -212,6 +212,7 @@ mod tests {
         assert!(rdata.emit(&mut encoder).is_ok());
         let bytes = encoder.into_bytes();
 
+        #[cfg(feature = "std")]
         println!("bytes: {bytes:?}");
 
         let mut decoder: BinDecoder<'_> = BinDecoder::new(bytes);

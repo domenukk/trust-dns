@@ -7,6 +7,8 @@
 
 //! SSHFP records for SSH public key fingerprints
 
+use alloc::vec::Vec;
+
 use crate::rr::rdata::{sshfp, SSHFP};
 use crate::serialize::txt::errors::{ParseError, ParseErrorKind, ParseResult};
 

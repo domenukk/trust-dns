@@ -811,7 +811,10 @@ mod tests {
         );
 
         let opt = read_rdata.unwrap();
+        #[cfg(not(feature = "std"))]
         let mut options = BTreeMap::default();
+        #[cfg(feature = "std")]
+        let mut options = HashMap::default();
         options.insert(
             EdnsCode::Subnet,
             EdnsOption::Subnet("0.0.0.0/0".parse().unwrap()),

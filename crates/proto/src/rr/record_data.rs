@@ -1088,6 +1088,7 @@ impl Ord for RData {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+    #[cfg(feature = "std")]
     use std::println;
 
     use alloc::str::FromStr;
@@ -1249,6 +1250,7 @@ mod tests {
     #[test]
     fn test_read() {
         for (test_pass, (expect, binary)) in get_data().into_iter().enumerate() {
+            #[cfg(feature = "std")]
             println!("test {test_pass}: {binary:?}");
             let length = binary.len() as u16; // pre exclusive borrow
             let mut decoder = BinDecoder::new(&binary);

@@ -9,6 +9,8 @@
 
 use core::{convert::From, fmt};
 
+use alloc::vec::Vec;
+
 use crate::{
     error::*,
     op::{op_code::OpCode, response_code::ResponseCode},

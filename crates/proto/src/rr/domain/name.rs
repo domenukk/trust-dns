@@ -22,8 +22,9 @@ use crate::rr::domain::label::{CaseInsensitive, CaseSensitive, IntoLabel, Label,
 #[cfg(feature = "std")]
 use crate::rr::domain::usage::LOCALHOST as LOCALHOST_usage;
 use crate::serialize::binary::*;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+#[cfg(feature = "std")]
+use alloc::string::ToString;
+use alloc::{string::String, vec::Vec};
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 #[cfg(feature = "serde-config")]
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};

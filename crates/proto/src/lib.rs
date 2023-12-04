@@ -153,6 +153,7 @@ pub mod rustls;
 pub mod serialize;
 #[cfg(feature = "std")]
 pub mod tcp;
+#[cfg(feature = "std")]
 #[cfg(any(test, feature = "testing"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "testing")))]
 pub mod tests;
@@ -299,11 +300,13 @@ pub trait Time {
 }
 
 /// New type which is implemented using tokio::time::{Delay, Timeout}
+#[cfg(feature = "std")]
 #[cfg(any(test, feature = "tokio-runtime"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio-runtime")))]
 #[derive(Clone, Copy, Debug)]
 pub struct TokioTime;
 
+#[cfg(feature = "std")]
 #[cfg(any(test, feature = "tokio-runtime"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio-runtime")))]
 #[async_trait]
