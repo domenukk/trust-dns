@@ -8,7 +8,7 @@
 //! domain name, aka labels, implementation
 
 use alloc::str::FromStr;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", test))]
 use alloc::string::{String, ToString};
 use core::borrow::Borrow;
 use core::cmp::{Ordering, PartialEq};

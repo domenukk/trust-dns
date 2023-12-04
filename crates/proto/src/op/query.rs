@@ -18,6 +18,7 @@
 
 use core::fmt::{self, Display, Formatter};
 
+#[cfg(test)]
 use alloc::vec::Vec;
 
 use crate::error::*;
@@ -321,7 +322,7 @@ fn test_read_and_emit() {
 #[test]
 fn test_mdns_unicast_response_bit_handling() {
     const QCLASS_OFFSET: usize = 1 /* empty name */ +
-        std::mem::size_of::<u16>() /* query_type */;
+        core::mem::size_of::<u16>() /* query_type */;
 
     let mut query = Query::new();
     query.set_mdns_unicast_response(true);

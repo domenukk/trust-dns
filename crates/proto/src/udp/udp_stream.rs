@@ -5,14 +5,12 @@
 // https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use crate::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use alloc::sync::Arc;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-#[cfg(feature = "std")]
 use std::io;
-#[cfg(feature = "std")]
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use alloc::boxed::Box;
 use async_trait::async_trait;

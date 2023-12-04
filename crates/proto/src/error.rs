@@ -333,6 +333,11 @@ impl ProtoError {
     pub(crate) fn as_dyn(&self) -> &(dyn std::error::Error + 'static) {
         self
     }
+
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn as_dyn(&self) -> &(dyn core::error::Error + 'static) {
+        self
+    }
 }
 
 impl fmt::Display for ProtoError {

@@ -5,13 +5,9 @@
 // https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#[cfg(not(feature = "std"))]
-use core::net::IpAddr;
-#[cfg(feature = "std")]
-use std::net::IpAddr;
-
 use alloc::string::String;
 
+use crate::net::IpAddr;
 use crate::rr::{Name, RData};
 
 /// Types of this trait will can be attempted for conversion to an IP address

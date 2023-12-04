@@ -437,7 +437,7 @@ impl<'a> BinEncoder<'a> {
 
 /// A trait to return the size of a type as it will be encoded in DNS
 ///
-/// it does not necessarily equal `std::mem::size_of`, though it might, especially for primitives
+/// it does not necessarily equal `core::mem::size_of`, though it might, especially for primitives
 pub trait EncodedSize: BinEncodable {
     /// Return the size in bytes of the
     fn size_of() -> usize;

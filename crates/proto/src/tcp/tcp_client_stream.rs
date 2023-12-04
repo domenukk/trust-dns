@@ -5,14 +5,12 @@
 // https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use crate::net::SocketAddr;
 use core::fmt::{self, Display};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use core::time::Duration;
-#[cfg(feature = "std")]
 use std::io;
-#[cfg(feature = "std")]
-use std::net::SocketAddr;
 
 use alloc::boxed::Box;
 #[cfg(feature = "tokio-runtime")]

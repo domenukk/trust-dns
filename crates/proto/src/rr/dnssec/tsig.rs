@@ -343,7 +343,7 @@ mod tests {
             if let RData::DNSSEC(DNSSECRData::TSIG(ref mut tsig)) = signature.rdata_mut() {
                 let mut mac = tsig.mac().to_vec();
                 mac.push(0); // make one longer than sha512
-                std::mem::swap(tsig, &mut tsig.clone().set_mac(mac));
+                core::mem::swap(tsig, &mut tsig.clone().set_mac(mac));
             } else {
                 panic!("should have been a TSIG");
             }
@@ -359,7 +359,7 @@ mod tests {
             if let RData::DNSSEC(DNSSECRData::TSIG(ref mut tsig)) = signature.rdata_mut() {
                 // sha512 is 512 bits, half of that is 256 bits, /8 for byte
                 let mac = tsig.mac()[..256 / 8].to_vec();
-                std::mem::swap(tsig, &mut tsig.clone().set_mac(mac));
+                core::mem::swap(tsig, &mut tsig.clone().set_mac(mac));
             } else {
                 panic!("should have been a TSIG");
             }
@@ -376,7 +376,7 @@ mod tests {
             if let RData::DNSSEC(DNSSECRData::TSIG(ref mut tsig)) = signature.rdata_mut() {
                 // less than half of sha512
                 let mac = tsig.mac()[..240 / 8].to_vec();
-                std::mem::swap(tsig, &mut tsig.clone().set_mac(mac));
+                core::mem::swap(tsig, &mut tsig.clone().set_mac(mac));
             } else {
                 panic!("should have been a TSIG");
             }

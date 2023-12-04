@@ -82,12 +82,12 @@ native-certs = ["dep:rustls-native-certs"]
 
 dnssec-openssl = ["dnssec", "openssl"]
 dnssec-ring = ["dnssec", "ring"]
-dnssec = []
+dnssec = ["std"]
 
 testing = []
 
 text-parsing = []
-tokio-runtime = ["tokio/net", "tokio/rt", "tokio/time", "tokio/rt-multi-thread"]
+tokio-runtime = ["tokio/net", "tokio/rt", "tokio/time", "tokio/rt-multi-thread", "std"]
 default = ["tokio-runtime", "std"]
 
 serde-config = ["serde", "url/serde"]

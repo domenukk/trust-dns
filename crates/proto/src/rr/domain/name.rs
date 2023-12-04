@@ -12,14 +12,10 @@ use core::char;
 use core::cmp::{Ordering, PartialEq};
 use core::fmt::{self, Write};
 use core::hash::{Hash, Hasher};
-#[cfg(not(feature = "std"))]
-use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-#[cfg(feature = "std")]
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::error::*;
+use crate::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use crate::rr::domain::label::{CaseInsensitive, CaseSensitive, IntoLabel, Label, LabelCmp};
-#[cfg(feature = "std")]
 use crate::rr::domain::usage::LOCALHOST as LOCALHOST_usage;
 use crate::serialize::binary::*;
 #[cfg(feature = "std")]
@@ -815,7 +811,6 @@ impl Name {
         Ok(())
     }
 
-    #[cfg(feature = "std")]
     /// Returns true if the `Name` is either localhost or in the localhost zone.
     ///
     /// # Example

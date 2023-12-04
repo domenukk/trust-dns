@@ -10,7 +10,6 @@
 mod label;
 mod name;
 mod try_parse_ip;
-#[cfg(feature = "std")]
 pub mod usage;
 
 pub use self::label::{IntoLabel, Label};

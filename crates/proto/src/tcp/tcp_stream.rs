@@ -7,14 +7,12 @@
 
 //! This module contains all the TCP structures for demuxing TCP into streams of DNS packets.
 
+use crate::net::SocketAddr;
 use core::mem;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use core::time::Duration;
-#[cfg(feature = "std")]
 use std::io;
-#[cfg(feature = "std")]
-use std::net::SocketAddr;
 
 use alloc::{boxed::Box, vec::Vec};
 use async_trait::async_trait;

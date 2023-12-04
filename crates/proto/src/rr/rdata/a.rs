@@ -31,15 +31,9 @@
 //! "10.2.0.52" or "192.0.5.6").
 //! ```
 
-#[cfg(not(feature = "std"))]
-use core::net::AddrParseError;
-#[cfg(not(feature = "std"))]
-pub use core::net::Ipv4Addr;
+use crate::net::AddrParseError;
+pub use crate::net::Ipv4Addr;
 use core::{fmt, ops::Deref, str};
-#[cfg(feature = "std")]
-use std::net::AddrParseError;
-#[cfg(feature = "std")]
-pub use std::net::Ipv4Addr;
 
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};

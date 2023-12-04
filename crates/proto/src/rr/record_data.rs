@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use enum_as_inner::EnumAsInner;
 use tracing::{trace, warn};
 
-#[cfg(feature = "std")]
 use crate::rr::rdata::{SSHFP, TLSA};
 use crate::{
     error::{ProtoError, ProtoErrorKind, ProtoResult},
@@ -561,7 +560,6 @@ pub enum RData {
     /// ```
     SRV(SRV),
 
-    #[cfg(feature = "std")]
     /// [RFC 4255](https://tools.ietf.org/html/rfc4255#section-3.1)
     ///
     /// ```text
@@ -649,7 +647,6 @@ pub enum RData {
     /// ```
     SVCB(SVCB),
 
-    #[cfg(feature = "std")]
     /// [RFC 6698, DNS-Based Authentication for TLS](https://tools.ietf.org/html/rfc6698#section-2.1)
     ///
     /// ```text
@@ -734,10 +731,8 @@ impl RData {
             Self::PTR(..) => RecordType::PTR,
             Self::SOA(..) => RecordType::SOA,
             Self::SRV(..) => RecordType::SRV,
-            #[cfg(feature = "std")]
             Self::SSHFP(..) => RecordType::SSHFP,
             Self::SVCB(..) => RecordType::SVCB,
-            #[cfg(feature = "std")]
             Self::TLSA(..) => RecordType::TLSA,
             Self::TXT(..) => RecordType::TXT,
             #[cfg(feature = "dnssec")]
@@ -843,7 +838,6 @@ impl RData {
                 trace!("reading SRV");
                 SRV::read_data(decoder, length).map(Self::SRV)
             }
-            #[cfg(feature = "std")]
             RecordType::SSHFP => {
                 trace!("reading SSHFP");
                 SSHFP::read_data(decoder, length).map(Self::SSHFP)
@@ -852,7 +846,6 @@ impl RData {
                 trace!("reading SVCB");
                 SVCB::read_data(decoder, length).map(Self::SVCB)
             }
-            #[cfg(feature = "std")]
             RecordType::TLSA => {
                 trace!("reading TLSA");
                 TLSA::read_data(decoder, length).map(Self::TLSA)
@@ -978,10 +971,8 @@ impl BinEncodable for RData {
             Self::OPT(ref opt) => opt.emit(encoder),
             Self::SOA(ref soa) => soa.emit(encoder),
             Self::SRV(ref srv) => encoder.with_canonical_names(|encoder| srv.emit(encoder)),
-            #[cfg(feature = "std")]
             Self::SSHFP(ref sshfp) => encoder.with_canonical_names(|encoder| sshfp.emit(encoder)),
             Self::SVCB(ref svcb) => svcb.emit(encoder),
-            #[cfg(feature = "std")]
             Self::TLSA(ref tlsa) => encoder.with_canonical_names(|encoder| tlsa.emit(encoder)),
             Self::TXT(ref txt) => txt.emit(encoder),
             #[cfg(feature = "dnssec")]
@@ -1039,10 +1030,8 @@ impl fmt::Display for RData {
             Self::SOA(ref soa) => w(f, soa),
             // to_lowercase for rfc4034 and rfc6840
             Self::SRV(ref srv) => w(f, srv),
-            #[cfg(feature = "std")]
             Self::SSHFP(ref sshfp) => w(f, sshfp),
             Self::SVCB(ref svcb) => w(f, svcb),
-            #[cfg(feature = "std")]
             Self::TLSA(ref tlsa) => w(f, tlsa),
             Self::TXT(ref txt) => w(f, txt),
             #[cfg(feature = "dnssec")]
@@ -1288,7 +1277,6 @@ mod tests {
             RData::SRV(..) => RecordType::SRV,
             RData::SSHFP(..) => RecordType::SSHFP,
             RData::SVCB(..) => RecordType::SVCB,
-            #[cfg(feature = "std")]
             RData::TLSA(..) => RecordType::TLSA,
             RData::TXT(..) => RecordType::TXT,
             #[cfg(feature = "dnssec")]

@@ -24,10 +24,8 @@ pub mod openpgpkey;
 pub mod opt;
 pub mod soa;
 pub mod srv;
-#[cfg(feature = "std")]
 pub mod sshfp;
 pub mod svcb;
-#[cfg(feature = "std")]
 pub mod tlsa;
 pub mod txt;
 
@@ -45,9 +43,7 @@ pub use self::openpgpkey::OPENPGPKEY;
 pub use self::opt::OPT;
 pub use self::soa::SOA;
 pub use self::srv::SRV;
-#[cfg(feature = "std")]
 pub use self::sshfp::SSHFP;
 pub use self::svcb::SVCB;
-#[cfg(feature = "std")]
 pub use self::tlsa::TLSA;
 pub use self::txt::TXT;

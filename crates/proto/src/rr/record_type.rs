@@ -102,12 +102,10 @@ pub enum RecordType {
     SOA,
     /// [RFC 2782](https://tools.ietf.org/html/rfc2782) Service locator
     SRV,
-    #[cfg(feature = "std")]
     /// [RFC 4255](https://tools.ietf.org/html/rfc4255) SSH Public Key Fingerprint
     SSHFP,
     /// [RFC draft-ietf-dnsop-svcb-https-03](https://tools.ietf.org/html/draft-ietf-dnsop-svcb-httpssvc-03) DNS SVCB and HTTPS RRs
     SVCB,
-    #[cfg(feature = "std")]
     //  TA,         // 32768 N/A DNSSEC Trust Authorities
     //  TKEY,       // 249 RFC 2930 Secret key record
     /// [RFC 6698](https://tools.ietf.org/html/rfc6698) TLSA certificate association
@@ -229,10 +227,8 @@ impl FromStr for RecordType {
             "SIG" => Ok(Self::SIG),
             "SOA" => Ok(Self::SOA),
             "SRV" => Ok(Self::SRV),
-            #[cfg(feature = "std")]
             "SSHFP" => Ok(Self::SSHFP),
             "SVCB" => Ok(Self::SVCB),
-            #[cfg(feature = "std")]
             "TLSA" => Ok(Self::TLSA),
             "TXT" => Ok(Self::TXT),
             "TSIG" => Ok(Self::TSIG),
@@ -284,10 +280,8 @@ impl From<u16> for RecordType {
             24 => Self::SIG,
             6 => Self::SOA,
             33 => Self::SRV,
-            #[cfg(feature = "std")]
             44 => Self::SSHFP,
             64 => Self::SVCB,
-            #[cfg(feature = "std")]
             52 => Self::TLSA,
             250 => Self::TSIG,
             16 => Self::TXT,
@@ -361,10 +355,8 @@ impl From<RecordType> for &'static str {
             RecordType::SIG => "SIG",
             RecordType::SOA => "SOA",
             RecordType::SRV => "SRV",
-            #[cfg(feature = "std")]
             RecordType::SSHFP => "SSHFP",
             RecordType::SVCB => "SVCB",
-            #[cfg(feature = "std")]
             RecordType::TLSA => "TLSA",
             RecordType::TSIG => "TSIG",
             RecordType::TXT => "TXT",
@@ -416,10 +408,8 @@ impl From<RecordType> for u16 {
             RecordType::SIG => 24,
             RecordType::SOA => 6,
             RecordType::SRV => 33,
-            #[cfg(feature = "std")]
             RecordType::SSHFP => 44,
             RecordType::SVCB => 64,
-            #[cfg(feature = "std")]
             RecordType::TLSA => 52,
             RecordType::TSIG => 250,
             RecordType::TXT => 16,
@@ -453,6 +443,7 @@ impl Display for RecordType {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+    #[cfg(feature = "std")]
     use std::println;
 
     use super::*;
@@ -495,6 +486,7 @@ mod tests {
 
         unordered.sort();
 
+        #[cfg(feature = "std")]
         for rtype in unordered.clone() {
             println!("u16 for {:?}: {}", rtype, u16::from(rtype));
         }
@@ -522,9 +514,7 @@ mod tests {
             "PTR",
             "SOA",
             "SRV",
-            #[cfg(feature = "std")]
             "SSHFP",
-            #[cfg(feature = "std")]
             "TLSA",
             "TXT",
             "ANY",
