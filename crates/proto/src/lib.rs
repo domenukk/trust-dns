@@ -87,9 +87,7 @@ static SEEDED_RNG: Lazy<Mutex<RefCell<StdRng>>> =
 /// Seed the RNG used to create random DNS IDs throughout the lib (no_std-only).
 #[cfg(not(feature = "std"))]
 pub fn seed_rng(seed: u64) {
-    critical_section::with(|cs| {
-        *SEEDED_RNG.borrow(cs).borrow_mut() = StdRng::seed_from_u64(const_random!(u64))
-    });
+    critical_section::with(|cs| *SEEDED_RNG.borrow(cs).borrow_mut() = StdRng::seed_from_u64(seed));
 }
 
 /// Generates a random value on `no_std`.
