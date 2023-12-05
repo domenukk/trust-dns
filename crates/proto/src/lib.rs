@@ -46,11 +46,11 @@ extern crate alloc;
 
 use async_trait::async_trait;
 
-#[cfg(all(not(feature = "std")))]
+#[cfg(not(feature = "std"))]
 use const_random::const_random;
-#[cfg(all(not(feature = "std")))]
+#[cfg(not(feature = "std"))]
 use core::cell::RefCell;
-#[cfg(all(not(feature = "std")))]
+#[cfg(not(feature = "std"))]
 use critical_section::Mutex;
 #[cfg(not(feature = "std"))]
 use once_cell::sync::Lazy;

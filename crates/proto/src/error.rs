@@ -12,7 +12,7 @@
 use core::cmp::Ordering;
 use core::fmt;
 #[cfg(feature = "std")]
-use std::io;
+use std::{io, sync};
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
@@ -565,7 +565,7 @@ impl From<io::Error> for ProtoErrorKind {
     }
 }
 
-#[cfg(features = "std")]
+#[cfg(feature = "std")]
 impl<T> From<sync::PoisonError<T>> for ProtoError {
     fn from(_e: sync::PoisonError<T>) -> Self {
         ProtoErrorKind::Poisoned.into()
