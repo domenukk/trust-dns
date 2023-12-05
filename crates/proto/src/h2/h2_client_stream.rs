@@ -5,7 +5,9 @@
 // https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use alloc::boxed::Box;
 use alloc::str::FromStr;
+use alloc::string::String;
 use alloc::sync::Arc;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -531,6 +533,7 @@ impl Future for HttpsClientResponse {
 #[cfg(test)]
 mod tests {
     use alloc::str::FromStr;
+    use alloc::string::ToString;
     use std::net::SocketAddr;
 
     use rustls::KeyLogFile;

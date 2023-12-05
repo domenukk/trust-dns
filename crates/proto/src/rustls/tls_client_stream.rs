@@ -7,6 +7,8 @@
 
 //! DNS over TLS client implementation for Rustls
 
+use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::sync::Arc;
 use core::pin::Pin;
 use std::future::Future;

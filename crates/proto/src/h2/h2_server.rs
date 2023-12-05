@@ -94,6 +94,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
     use core::pin::Pin;
     use core::task::{Context, Poll};
     use futures_executor::block_on;

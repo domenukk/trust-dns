@@ -8,6 +8,7 @@
 //! domain name, aka labels, implementation
 
 use alloc::str::FromStr;
+use alloc::string::ToString;
 use core::char;
 use core::cmp::{Ordering, PartialEq};
 use core::fmt::{self, Write};
