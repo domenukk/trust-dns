@@ -8,8 +8,6 @@
 //! domain name, aka labels, implementation
 
 use alloc::str::FromStr;
-#[cfg(any(feature = "std", test))]
-use alloc::string::{String, ToString};
 use core::borrow::Borrow;
 use core::cmp::{Ordering, PartialEq};
 use core::fmt;
@@ -59,6 +57,7 @@ impl LowerName {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::{LowerName, Name};
     ///
@@ -80,6 +79,7 @@ impl LowerName {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::{LowerName, Name};
     ///
@@ -97,6 +97,7 @@ impl LowerName {
     /// # Example
     ///
     /// ```rust
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::{LowerName, Name};
     ///
@@ -115,6 +116,7 @@ impl LowerName {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::{LowerName, Name};
     ///

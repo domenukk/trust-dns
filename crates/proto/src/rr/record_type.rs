@@ -190,6 +190,7 @@ impl FromStr for RecordType {
     /// Convert `&str` to `RecordType`
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::record_type::RecordType;
     ///

@@ -93,7 +93,7 @@ default = ["tokio-runtime", "std"]
 serde-config = ["serde", "url/serde"]
 
 # enables experimental the mDNS (multicast) feature
-mdns = ["socket2/all"]
+mdns = ["socket2/all", "std"]
 
 # WARNING: there is a bug in the mutual tls auth code at the moment see issue #100
 # mtls = ["tls"]

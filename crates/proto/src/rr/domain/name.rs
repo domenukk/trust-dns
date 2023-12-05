@@ -18,8 +18,6 @@ use crate::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use crate::rr::domain::label::{CaseInsensitive, CaseSensitive, IntoLabel, Label, LabelCmp};
 use crate::rr::domain::usage::LOCALHOST as LOCALHOST_usage;
 use crate::serialize::binary::*;
-#[cfg(feature = "std")]
-use alloc::string::ToString;
 use alloc::{string::String, vec::Vec};
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 #[cfg(feature = "serde-config")]
@@ -85,6 +83,7 @@ impl Name {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -122,7 +121,8 @@ impl Name {
     /// # Example
     ///
     /// ```rust
-    /// use trust_dns_proto::rr::domain::Name;
+    /// # extern crate alloc;
+    /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
     /// let name = Name::from_str("www.example").unwrap();
@@ -143,6 +143,7 @@ impl Name {
     /// # Examples
     ///
     /// ```rust
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -194,6 +195,7 @@ impl Name {
     /// # Examples
     ///
     /// ```rust
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -229,6 +231,7 @@ impl Name {
     /// # Examples
     ///
     /// ```rust
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -249,7 +252,8 @@ impl Name {
     /// # Examples
     ///
     /// ```
-    /// use std::cmp::Ordering;
+    /// # extern crate alloc;
+    /// use core::cmp::Ordering;
     /// use alloc::str::FromStr;
     ///
     /// use hickory_proto::rr::domain::{Label, Name};
@@ -276,6 +280,7 @@ impl Name {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -297,6 +302,7 @@ impl Name {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -348,6 +354,7 @@ impl Name {
     /// # Example
     ///
     /// ```rust
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -371,6 +378,7 @@ impl Name {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -402,6 +410,7 @@ impl Name {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -429,6 +438,7 @@ impl Name {
     /// # Examples
     ///
     /// ```rust
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::domain::Name;
     ///
@@ -479,6 +489,7 @@ impl Name {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::Name;
     ///
@@ -501,6 +512,7 @@ impl Name {
     /// # Examples
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::Name;
     ///
@@ -816,6 +828,7 @@ impl Name {
     /// # Example
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::Name;
     ///
@@ -837,6 +850,7 @@ impl Name {
     /// # Example
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::Name;
     ///
@@ -858,6 +872,7 @@ impl Name {
     /// # Example
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::Name;
     ///
@@ -1357,8 +1372,12 @@ mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
     use alloc::str::FromStr;
-    use std::iter;
-    use std::{cmp::Ordering, println};
+    use alloc::string::ToString;
+    use core::cmp::Ordering;
+    use core::iter;
+
+    #[cfg(feature = "std")]
+    use std::println;
 
     use super::*;
 
@@ -1586,6 +1605,7 @@ mod tests {
         ];
 
         for (left, right) in comparisons {
+            #[cfg(feature = "std")]
             println!("left: {left}, right: {right}");
             assert_eq!(left.partial_cmp(&right), Some(Ordering::Equal));
         }
@@ -1629,6 +1649,7 @@ mod tests {
         ];
 
         for (left, right) in comparisons {
+            #[cfg(feature = "std")]
             println!("left: {left}, right: {right}");
             assert_eq!(left.cmp(&right), Ordering::Less);
         }
@@ -1648,6 +1669,7 @@ mod tests {
         ];
 
         for (left, right) in comparisons {
+            #[cfg(feature = "std")]
             println!("left: {left}, right: {right}");
             assert_eq!(left, right);
         }

@@ -48,6 +48,7 @@ impl FromStr for DNSClass {
     /// Convert from `&str` to `DNSClass`
     ///
     /// ```
+    /// # extern crate alloc;
     /// use alloc::str::FromStr;
     /// use hickory_proto::rr::dns_class::DNSClass;
     ///

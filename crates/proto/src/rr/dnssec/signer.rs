@@ -526,8 +526,6 @@ impl MessageFinalizer for SigSigner {
         message: &Message,
         current_time: u32,
     ) -> ProtoResult<(Vec<Record>, Option<MessageVerifier>)> {
-        use alloc::vec::Vec;
-
         debug!("signing message: {message:?}");
         let key_tag: u16 = self.calculate_key_tag()?;
 

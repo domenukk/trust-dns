@@ -51,7 +51,7 @@ where
 
 #[test]
 fn test_try_parse_ip() {
-    use std::net::{Ipv4Addr, Ipv6Addr};
+    use crate::net::{Ipv4Addr, Ipv6Addr};
 
     assert_eq!(
         "127.0.0.1".try_parse_ip().expect("failed"),

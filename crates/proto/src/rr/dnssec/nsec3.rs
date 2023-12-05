@@ -17,8 +17,10 @@
 
 //! NSEC3 related record types
 #![allow(clippy::use_self)]
+#[cfg(all(test, any(feature = "openssl", feature = "ring")))]
+use alloc::string::String;
 #[cfg(any(feature = "openssl", feature = "ring"))]
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 
 #[cfg(feature = "serde-config")]
 use serde::{Deserialize, Serialize};

@@ -923,7 +923,10 @@ impl fmt::Display for CAA {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
-    use std::{println, str};
+    use alloc::str;
+
+    #[cfg(feature = "std")]
+    use std::println;
 
     use crate::error::ProtoErrorKind;
 
@@ -1056,6 +1059,7 @@ mod tests {
         rdata.emit(&mut encoder).expect("failed to emit caa");
         let bytes = encoder.into_bytes();
 
+        #[cfg(feature = "std")]
         println!("bytes: {bytes:?}");
 
         let mut decoder: BinDecoder<'_> = BinDecoder::new(bytes);
