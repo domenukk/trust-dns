@@ -34,7 +34,6 @@ use crate::DnsHandle;
 pub struct RetryDnsHandle<H>
 where
     H: DnsHandle + Unpin + Send,
-    H::Error: RetryableError,
 {
     handle: H,
     attempts: usize,
@@ -43,7 +42,6 @@ where
 impl<H> RetryDnsHandle<H>
 where
     H: DnsHandle + Unpin + Send,
-    H::Error: RetryableError,
 {
     /// Creates a new Client handler for reattempting requests on failures.
     ///
@@ -59,10 +57,8 @@ where
 impl<H> DnsHandle for RetryDnsHandle<H>
 where
     H: DnsHandle + Send + Unpin + 'static,
-    H::Error: RetryableError,
 {
-    type Response = Pin<Box<dyn Stream<Item = Result<DnsResponse, Self::Error>> + Send + Unpin>>;
-    type Error = <H as DnsHandle>::Error;
+    type Response = Pin<Box<dyn Stream<Item = Result<DnsResponse, ProtoError>> + Send + Unpin>>;
 
     fn send<R: Into<DnsRequest>>(&self, request: R) -> Self::Response {
         let request = request.into();
@@ -91,11 +87,8 @@ where
     remaining_attempts: usize,
 }
 
-impl<H: DnsHandle + Unpin> Stream for RetrySendStream<H>
-where
-    <H as DnsHandle>::Error: RetryableError,
-{
-    type Item = Result<DnsResponse, <H as DnsHandle>::Error>;
+impl<H: DnsHandle + Unpin> Stream for RetrySendStream<H> {
+    type Item = Result<DnsResponse, ProtoError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // loop over the stream, on errors, spawn a new stream
@@ -132,7 +125,10 @@ pub trait RetryableError {
 
 impl RetryableError for ProtoError {
     fn should_retry(&self) -> bool {
-        true
+        !matches!(
+            self.kind(),
+            ProtoErrorKind::NoConnections | ProtoErrorKind::NoRecordsFound { .. }
+        )
     }
 
     fn attempted(&self) -> bool {
@@ -165,7 +161,6 @@ mod test {
 
     impl DnsHandle for TestClient {
         type Response = Box<dyn Stream<Item = Result<DnsResponse, ProtoError>> + Send + Unpin>;
-        type Error = ProtoError;
 
         fn send<R: Into<DnsRequest>>(&self, _: R) -> Self::Response {
             let i = self.attempts.load(Ordering::SeqCst);

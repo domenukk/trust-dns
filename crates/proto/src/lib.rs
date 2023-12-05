@@ -81,14 +81,25 @@ pub(crate) use std::net;
 use rand::distributions::{Distribution, Standard};
 
 #[cfg(not(feature = "std"))]
-static SEEDED_RNG: Lazy<Mutex<RefCell<StdRng>>> = Lazy::new(|| {
-    let rng = StdRng::seed_from_u64(const_random!(u64));
-    Mutex::new(RefCell::new(rng))
-});
+static SEEDED_RNG: Lazy<Mutex<RefCell<StdRng>>> =
+    Lazy::new(|| Mutex::new(RefCell::new(StdRng::seed_from_u64(const_random!(u64)))));
+
+/// Seed the RNG used to create random DNS IDs throughout the lib (no_std-only).
+#[cfg(not(feature = "std"))]
+pub fn seed_rng(seed: u64) {
+    critical_section::with(|cs| {
+        *SEEDED_RNG.borrow(cs).borrow_mut() = StdRng::seed_from_u64(const_random!(u64))
+    });
+}
 
 /// Generates a random value on `no_std`.
+/// The random value is predictable for each compilation unit (using [`const_random`],
+/// unless seeded using [`crate::seed_rng`]!
+/// Depending on the usage of this library, this may yield predictable DNS requests that attackers can
+/// use to feed wrong responses to hickory.
+/// Always seed this library before using in `no_std` environments, if possible.
 #[cfg(not(feature = "std"))]
-pub fn random<T>() -> T
+pub(crate) fn random<T>() -> T
 where
     Standard: Distribution<T>,
 {
