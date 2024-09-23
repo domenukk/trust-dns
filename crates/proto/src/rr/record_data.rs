@@ -19,14 +19,13 @@ use serde::{Deserialize, Serialize};
 use enum_as_inner::EnumAsInner;
 use tracing::{trace, warn};
 
-use crate::rr::rdata::{SSHFP, TLSA};
 use crate::{
     error::{ProtoError, ProtoErrorKind, ProtoResult},
     net::IpAddr,
     rr::{
         rdata::{
             A, AAAA, ANAME, CAA, CERT, CNAME, CSYNC, HINFO, HTTPS, MX, NAPTR, NS, NULL, OPENPGPKEY,
-            OPT, PTR, SOA, SRV, SVCB, TXT,
+            OPT, PTR, SOA, SRV, SSHFP, SVCB, TLSA, TXT,
         },
         record_type::RecordType,
         RecordData, RecordDataDecodable,
