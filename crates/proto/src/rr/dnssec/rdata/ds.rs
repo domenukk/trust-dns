@@ -373,6 +373,8 @@ mod tests {
     #[test]
     #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
     pub(crate) fn test_covers_fails_with_non_zone_key() {
+        use alloc::borrow::ToOwned;
+
         use crate::rr::dnssec::rdata::DNSKEY;
 
         let name = Name::parse("www.example.com.", None).unwrap();

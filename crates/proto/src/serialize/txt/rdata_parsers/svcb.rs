@@ -366,6 +366,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::borrow::ToOwned;
     use alloc::string::ToString;
 
     use crate::{

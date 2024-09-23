@@ -17,9 +17,9 @@
 
 //! NSEC3 related record types
 #![allow(clippy::use_self)]
-#[cfg(all(test, any(feature = "openssl", feature = "ring")))]
+#[cfg(all(test, any(feature = "dnssec-openssl", feature = "ring")))]
 use alloc::string::String;
-#[cfg(any(feature = "openssl", feature = "ring"))]
+#[cfg(any(feature = "dnssec-openssl", feature = "ring"))]
 use alloc::vec::Vec;
 
 #[cfg(feature = "serde")]

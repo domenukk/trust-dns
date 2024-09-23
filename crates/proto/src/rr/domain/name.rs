@@ -17,7 +17,13 @@ use crate::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use crate::rr::domain::label::{CaseInsensitive, CaseSensitive, IntoLabel, Label, LabelCmp};
 use crate::rr::domain::usage::LOCALHOST as LOCALHOST_usage;
 use crate::serialize::binary::*;
-use alloc::{str::FromStr, string::{String, ToString}, vec::Vec};
+use alloc::{
+    str::FromStr,
+    string::String,
+    vec::Vec,
+};
+#[cfg(feature = "serde")]
+use alloc::string::ToString;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 #[cfg(feature = "serde")]
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};

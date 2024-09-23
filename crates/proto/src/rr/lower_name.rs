@@ -8,6 +8,7 @@
 //! domain name, aka labels, implementation
 
 use alloc::str::FromStr;
+#[cfg(feature = "serde")]
 use alloc::string::{String, ToString};
 use core::cmp::{Ordering, PartialEq};
 use core::fmt;

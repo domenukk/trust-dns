@@ -144,7 +144,7 @@
 //!
 //! ```rust,no_run
 //!
-//! #[cfg(all(feature = "openssl", feature = "dnssec"))]
+//! #[cfg(all(feature = "dnssec-openssl", feature = "dnssec"))]
 //! # fn main() {
 //!
 //! use std::fs::File;
@@ -152,7 +152,7 @@
 //! use std::net::Ipv4Addr;
 //! use std::str::FromStr;
 //!
-//! # #[cfg(feature = "openssl")]
+//! # #[cfg(feature = "dnssec-openssl")]
 //! use openssl::rsa::Rsa;
 //! use hickory_client::client::{Client, SyncClient};
 //! use hickory_client::proto::udp::UdpClientConnection;
@@ -210,7 +210,7 @@
 //! let result = client.create(record, origin).unwrap();
 //! assert_eq!(result.response_code(), ResponseCode::NoError);
 //! # }
-//! # #[cfg(not(all(feature = "openssl", feature = "dnssec")))]
+//! # #[cfg(not(all(feature = "dnssec-openssl", feature = "dnssec")))]
 //! # fn main() {
 //! # }
 //! ```
