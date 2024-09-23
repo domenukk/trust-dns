@@ -5,7 +5,7 @@
 // https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#[cfg(feature = "dnssec-openssl")]
+#[cfg(feature = "openssl")]
 pub mod tls {
     use openssl::asn1::*;
     use openssl::bn::*;

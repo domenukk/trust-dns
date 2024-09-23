@@ -7,8 +7,8 @@
 
 //! DNSSEC related Proof of record authenticity
 
-use core::{fmt, ops::BitOr};
 use alloc::string::String;
+use core::{fmt, ops::BitOr};
 
 use bitflags::bitflags;
 #[cfg(feature = "serde")]

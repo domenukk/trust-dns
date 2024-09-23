@@ -326,7 +326,7 @@ The Client has a few features which can be disabled for different reasons when e
 
 - `std`/`embedded`
   The `proto` crate can run in a `no_std` mode by disabling `default-features` and instead enabling the `embedded` feature.
-  
+  If you use this feature, ideally you should call `seed_rng(random_seed)` with a secure seed.
 
 Using custom features in dependencies:
 
