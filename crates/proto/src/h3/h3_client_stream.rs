@@ -8,7 +8,7 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use std::fmt::{self, Display};
-use std::future::Future;
+use std::future::{self, Future};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -18,31 +18,32 @@ use std::task::{Context, Poll};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures_util::future::FutureExt;
 use futures_util::stream::Stream;
-use h3::client::{Connection, SendRequest};
+use h3::client::SendRequest;
 use h3_quinn::OpenStreams;
 use http::header::{self, CONTENT_LENGTH};
+use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Endpoint, EndpointConfig, TransportConfig};
 use rustls::ClientConfig as TlsClientConfig;
-use tracing::debug;
+use tokio::sync::mpsc;
+use tracing::{debug, warn};
 
 use crate::error::ProtoError;
 use crate::http::Version;
 use crate::op::Message;
-use crate::quic::quic_socket::QuinnAsyncUdpSocketAdapter;
-use crate::quic::QuicLocalAddr;
-use crate::udp::{DnsUdpSocket, UdpSocket};
+use crate::udp::UdpSocket;
 use crate::xfer::{DnsRequest, DnsRequestSender, DnsResponse, DnsResponseStream};
 
 use super::ALPN_H3;
 
 /// A DNS client connection for DNS-over-HTTP/3
+#[derive(Clone)]
 #[must_use = "futures do nothing unless polled"]
 pub struct H3ClientStream {
     // Corresponds to the dns-name of the HTTP/3 server
     name_server_name: Arc<str>,
     name_server: SocketAddr,
-    driver: Connection<h3_quinn::Connection, Bytes>,
     send_request: SendRequest<OpenStreams, Bytes>,
+    shutdown_tx: mpsc::Sender<()>,
     is_shutdown: bool,
 }
 
@@ -114,7 +115,7 @@ impl H3ClientStream {
         // clamp(512, 4096) says make sure it is at least 512 bytes, and min 4096 says it is at most 4k
         // just a little protection from malicious actors.
         let mut response_bytes =
-            BytesMut::with_capacity(content_length.unwrap_or(512).clamp(512, 4096));
+            BytesMut::with_capacity(content_length.unwrap_or(512).clamp(512, 4_096));
 
         while let Some(partial_bytes) = stream
             .recv_data()
@@ -266,19 +267,19 @@ impl DnsRequestSender for H3ClientStream {
 impl Stream for H3ClientStream {
     type Item = Result<(), ProtoError>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.is_shutdown {
             return Poll::Ready(None);
         }
 
         // just checking if the connection is ok
-        match self.driver.poll_close(cx) {
-            Poll::Ready(Ok(())) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(ProtoError::from(format!(
-                "h3 stream errored: {e}",
-            ))))),
+        if self.shutdown_tx.is_closed() {
+            return Poll::Ready(Some(Err(ProtoError::from(
+                "h3 connection is already shutdown",
+            ))));
         }
+
+        Poll::Ready(Some(Ok(())))
     }
 }
 
@@ -313,38 +314,28 @@ impl H3ClientStreamBuilder {
     }
 
     /// Creates a new H3Stream with existing connection
-    pub fn build_with_future<S, F>(
+    pub fn build_with_future(
         self,
-        future: F,
+        socket: Arc<dyn quinn::AsyncUdpSocket>,
         name_server: SocketAddr,
         dns_name: String,
-    ) -> H3ClientConnect
-    where
-        S: DnsUdpSocket + QuicLocalAddr + 'static,
-        F: Future<Output = std::io::Result<S>> + Send + Unpin + 'static,
-    {
-        H3ClientConnect(Box::pin(self.connect_with_future(future, name_server, dns_name)) as _)
+    ) -> H3ClientConnect {
+        H3ClientConnect(Box::pin(self.connect_with_future(socket, name_server, dns_name)) as _)
     }
 
-    async fn connect_with_future<S, F>(
+    async fn connect_with_future(
         self,
-        future: F,
+        socket: Arc<dyn quinn::AsyncUdpSocket>,
         name_server: SocketAddr,
-        dns_name: String,
-    ) -> Result<H3ClientStream, ProtoError>
-    where
-        S: DnsUdpSocket + QuicLocalAddr + 'static,
-        F: Future<Output = std::io::Result<S>> + Send,
-    {
-        let socket = future.await?;
-        let wrapper = QuinnAsyncUdpSocketAdapter { io: socket };
+        server_name: String,
+    ) -> Result<H3ClientStream, ProtoError> {
         let endpoint = Endpoint::new_with_abstract_socket(
             EndpointConfig::default(),
             None,
-            wrapper,
+            socket,
             Arc::new(quinn::TokioRuntime),
         )?;
-        self.connect_inner(endpoint, name_server, dns_name).await
+        self.connect_inner(endpoint, name_server, server_name).await
     }
 
     async fn connect(
@@ -382,7 +373,8 @@ impl H3ClientStreamBuilder {
         }
         let early_data_enabled = crypto_config.enable_early_data;
 
-        let mut client_config = ClientConfig::new(Arc::new(crypto_config));
+        let mut client_config =
+            ClientConfig::new(Arc::new(QuicClientConfig::try_from(crypto_config)?));
         client_config.transport_config(self.transport_config.clone());
 
         endpoint.set_default_client_config(client_config);
@@ -400,15 +392,31 @@ impl H3ClientStreamBuilder {
         };
 
         let h3_connection = h3_quinn::Connection::new(quic_connection);
-        let (driver, send_request) = h3::client::new(h3_connection)
+        let (mut driver, send_request) = h3::client::new(h3_connection)
             .await
             .map_err(|e| ProtoError::from(format!("h3 connection failed: {e}")))?;
+
+        let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+
+        // TODO: hand this back for others to run rather than spawning here?
+        debug!("h3 connection is ready: {}", name_server);
+        tokio::spawn(async move {
+            tokio::select! {
+                res = future::poll_fn(|cx| driver.poll_close(cx)) => {
+                    res.map_err(|e| warn!("h3 connection failed: {e}"))
+                }
+                _ = shutdown_rx.recv() => {
+                    debug!("h3 connection is shutting down: {}", name_server);
+                    Ok(())
+                }
+            }
+        });
 
         Ok(H3ClientStream {
             name_server_name: Arc::from(dns_name),
             name_server,
-            driver,
             send_request,
+            shutdown_tx,
             is_shutdown: false,
         })
     }
@@ -455,18 +463,20 @@ mod tests {
     use std::str::FromStr;
 
     use rustls::KeyLogFile;
+    use test_support::subscribe;
     use tokio::runtime::Runtime;
+    use tokio::task::JoinSet;
 
     use crate::op::{Message, Query, ResponseCode};
     use crate::rr::rdata::{A, AAAA};
-    use crate::rr::{Name, RData, RecordType};
+    use crate::rr::{Name, RecordType};
     use crate::xfer::{DnsRequestOptions, FirstAnswer};
 
     use super::*;
 
     #[test]
     fn test_h3_google() {
-        //env_logger::try_init().ok();
+        subscribe();
 
         let google = SocketAddr::from(([8, 8, 8, 8], 443));
         let mut request = Message::new();
@@ -491,12 +501,9 @@ mod tests {
             .expect("send_message failed");
 
         let record = &response.answers()[0];
-        let addr = record
-            .data()
-            .and_then(RData::as_a)
-            .expect("Expected A record");
+        let addr = record.data().as_a().expect("Expected A record");
 
-        assert_eq!(addr, &A::new(93, 184, 216, 34));
+        assert_eq!(addr, &A::new(93, 184, 215, 14));
 
         //
         // assert that the connection works for a second query
@@ -519,19 +526,19 @@ mod tests {
             let record = &response.answers()[0];
             let addr = record
                 .data()
-                .and_then(RData::as_aaaa)
+                .as_aaaa()
                 .expect("invalid response, expected A record");
 
             assert_eq!(
                 addr,
-                &AAAA::new(0x2606, 0x2800, 0x0220, 0x0001, 0x0248, 0x1893, 0x25c8, 0x1946)
+                &AAAA::new(0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c)
             );
         }
     }
 
     #[test]
     fn test_h3_google_with_pure_ip_address_server() {
-        //env_logger::try_init().ok();
+        subscribe();
 
         let google = SocketAddr::from(([8, 8, 8, 8], 443));
         let mut request = Message::new();
@@ -556,12 +563,9 @@ mod tests {
             .expect("send_message failed");
 
         let record = &response.answers()[0];
-        let addr = record
-            .data()
-            .and_then(RData::as_a)
-            .expect("Expected A record");
+        let addr = record.data().as_a().expect("Expected A record");
 
-        assert_eq!(addr, &A::new(93, 184, 216, 34));
+        assert_eq!(addr, &A::new(93, 184, 215, 14));
 
         //
         // assert that the connection works for a second query
@@ -584,12 +588,12 @@ mod tests {
             let record = &response.answers()[0];
             let addr = record
                 .data()
-                .and_then(RData::as_aaaa)
+                .as_aaaa()
                 .expect("invalid response, expected A record");
 
             assert_eq!(
                 addr,
-                &AAAA::new(0x2606, 0x2800, 0x0220, 0x0001, 0x0248, 0x1893, 0x25c8, 0x1946)
+                &AAAA::new(0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c)
             );
         }
     }
@@ -598,7 +602,7 @@ mod tests {
     #[test]
     #[ignore] // cloudflare has been unreliable as a public test service.
     fn test_h3_cloudflare() {
-        // self::env_logger::try_init().ok();
+        subscribe();
 
         let cloudflare = SocketAddr::from(([1, 1, 1, 1], 443));
         let mut request = Message::new();
@@ -625,10 +629,10 @@ mod tests {
         let record = &response.answers()[0];
         let addr = record
             .data()
-            .and_then(RData::as_a)
+            .as_a()
             .expect("invalid response, expected A record");
 
-        assert_eq!(addr, &A::new(93, 184, 216, 34));
+        assert_eq!(addr, &A::new(93, 184, 215, 14));
 
         //
         // assert that the connection works for a second query
@@ -647,12 +651,64 @@ mod tests {
         let record = &response.answers()[0];
         let addr = record
             .data()
-            .and_then(RData::as_aaaa)
+            .as_aaaa()
             .expect("invalid response, expected A record");
 
         assert_eq!(
             addr,
-            &AAAA::new(0x2606, 0x2800, 0x0220, 0x0001, 0x0248, 0x1893, 0x25c8, 0x1946)
+            &AAAA::new(0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c)
         );
+    }
+
+    #[test]
+    #[allow(clippy::print_stdout)]
+    fn test_h3_client_stream_clonable() {
+        // use google
+        let google = SocketAddr::from(([8, 8, 8, 8], 443));
+
+        let mut client_config = super::super::client_config_tls13().unwrap();
+        client_config.key_log = Arc::new(KeyLogFile::new());
+
+        let mut h3_builder = H3ClientStream::builder();
+        h3_builder.crypto_config(client_config);
+        let connect = h3_builder.build(google, "dns.google".to_string());
+
+        // tokio runtime stuff...
+        let runtime = Runtime::new().expect("could not start runtime");
+        let h3 = runtime.block_on(connect).expect("h3 connect failed");
+
+        // prepare request
+        let mut request = Message::new();
+        let query = Query::query(
+            Name::from_str("www.example.com.").unwrap(),
+            RecordType::AAAA,
+        );
+        request.add_query(query);
+        let request = DnsRequest::new(request, DnsRequestOptions::default());
+
+        runtime.block_on(async move {
+            let mut join_set = JoinSet::new();
+
+            for i in 0..50 {
+                let mut h3 = h3.clone();
+                let request = request.clone();
+
+                join_set.spawn(async move {
+                    let start = std::time::Instant::now();
+                    h3.send_message(request)
+                        .first_answer()
+                        .await
+                        .expect("send_message failed");
+                    println!("request[{i}] completed: {:?}", start.elapsed());
+                });
+            }
+
+            let total = join_set.len();
+            let mut idx = 0usize;
+            while join_set.join_next().await.is_some() {
+                println!("join_set completed {idx}/{total}");
+                idx += 1;
+            }
+        });
     }
 }

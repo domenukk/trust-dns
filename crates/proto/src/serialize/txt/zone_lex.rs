@@ -21,7 +21,7 @@ pub(crate) struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     /// Creates a new lexer with the given data to parse
-    pub(crate) fn new(txt: impl Into<Cow<'a, str>>) -> Lexer<'a> {
+    pub(crate) fn new(txt: impl Into<Cow<'a, str>>) -> Self {
         Lexer {
             txt: CowChars {
                 data: txt.into(),
@@ -37,7 +37,7 @@ impl<'a> Lexer<'a> {
         let mut char_data_vec: Option<Vec<String>> = None;
         let mut char_data: Option<String> = None;
 
-        for i in 0..4096 {
+        for i in 0..4_096 {
             // max chars in a single lex, helps with issues in the lexer...
             assert!(i < 4095); // keeps the bounds of the loop defined (nothing lasts forever)
 

@@ -11,6 +11,7 @@ use std::{fmt, io, sync};
 
 use thiserror::Error;
 
+use crate::proto::rr::{rdata::SOA, Record};
 use crate::proto::{error::ProtoError, xfer::retry_dns_handle::RetryableError};
 
 #[cfg(feature = "backtrace")]
@@ -32,10 +33,6 @@ pub enum ResolveErrorKind {
     #[error("{0}")]
     Msg(String),
 
-    /// An error got returned from IO
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-
     /// An error got returned by the hickory-proto crate
     #[error("proto error: {0}")]
     Proto(#[from] ProtoError),
@@ -48,7 +45,6 @@ impl Clone for ResolveErrorKind {
             Message(msg) => Message(msg),
             Msg(ref msg) => Msg(msg.clone()),
             // foreign
-            Io(io) => Self::from(std::io::Error::from(io.kind())),
             Proto(proto) => Self::from(proto.clone()),
         }
     }
@@ -75,6 +71,28 @@ impl ResolveError {
             _ => None,
         }
     }
+
+    /// Returns true if the domain does not exist
+    pub fn is_nx_domain(&self) -> bool {
+        self.proto()
+            .map(|proto| proto.is_nx_domain())
+            .unwrap_or(false)
+    }
+
+    /// Returns true if no records were returned
+    pub fn is_no_records_found(&self) -> bool {
+        self.proto()
+            .map(|proto| proto.is_no_records_found())
+            .unwrap_or(false)
+    }
+
+    /// Returns the SOA record, if the error contains one
+    pub fn into_soa(self) -> Option<Box<Record<SOA>>> {
+        match self.kind {
+            ResolveErrorKind::Proto(proto) => proto.into_soa(),
+            _ => None,
+        }
+    }
 }
 
 impl RetryableError for ResolveError {
@@ -82,7 +100,6 @@ impl RetryableError for ResolveError {
         match self.kind() {
             ResolveErrorKind::Message(_) | ResolveErrorKind::Msg(_) => false,
             ResolveErrorKind::Proto(proto) => proto.should_retry(),
-            ResolveErrorKind::Io(_) => true,
         }
     }
 
@@ -144,7 +161,7 @@ impl From<String> for ResolveError {
 
 impl From<io::Error> for ResolveError {
     fn from(e: io::Error) -> Self {
-        ResolveErrorKind::from(e).into()
+        ResolveErrorKind::from(ProtoError::from(e)).into()
     }
 }
 

@@ -10,7 +10,10 @@
 #[cfg(feature = "std")]
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::{convert::TryFrom, ops::Deref};
+use core::{
+    convert::TryFrom,
+    ops::{Deref, DerefMut},
+};
 #[cfg(feature = "std")]
 use core::{
     future::Future,
@@ -30,7 +33,7 @@ use crate::error::{ProtoErrorKind, ProtoResult};
 use crate::{
     error::ProtoError,
     op::{Message, ResponseCode},
-    rr::{rdata::SOA, resource::RecordRef, RData, RecordType},
+    rr::{rdata::SOA, resource::RecordRef, RecordType},
 };
 
 /// A stream returning DNS responses
@@ -234,12 +237,7 @@ impl DnsResponse {
         // TODO: should this ensure that the SOA zone matches the Queried Zone?
         self.name_servers()
             .iter()
-            .filter_map(|record| {
-                record
-                    .data()
-                    .and_then(RData::as_soa)
-                    .map(|soa| (record.ttl(), soa))
-            })
+            .filter_map(|record| record.data().as_soa().map(|soa| (record.ttl(), soa)))
             .next()
             .map(|(ttl, soa)| (ttl).min(soa.minimum()))
     }
@@ -343,6 +341,12 @@ impl Deref for DnsResponse {
 
     fn deref(&self) -> &Self::Target {
         &self.message
+    }
+}
+
+impl DerefMut for DnsResponse {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.message
     }
 }
 

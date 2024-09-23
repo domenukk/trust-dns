@@ -23,6 +23,7 @@ use futures_util::ready;
 use futures_util::stream::Stream;
 use h2::client::{Connection, SendRequest};
 use http::header::{self, CONTENT_LENGTH};
+use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use tokio_rustls::{
     client::TlsStream as TokioTlsClientStream, Connect as TokioTlsConnect, TlsConnector,
@@ -112,7 +113,7 @@ impl HttpsClientStream {
         // clamp(512, 4096) says make sure it is at least 512 bytes, and min 4096 says it is at most 4k
         // just a little protection from malicious actors.
         let mut response_bytes =
-            BytesMut::with_capacity(content_length.unwrap_or(512).clamp(512, 4096));
+            BytesMut::with_capacity(content_length.unwrap_or(512).clamp(512, 4_096));
 
         while let Some(partial_bytes) = response_stream.body_mut().data().await {
             let partial_bytes =
@@ -446,10 +447,10 @@ where
                         .expect("programming error, tls should not be None here");
                     let name_server_name = Arc::clone(&tls.dns_name);
 
-                    match tls.dns_name.as_ref().try_into() {
+                    match ServerName::try_from(&*tls.dns_name) {
                         Ok(dns_name) => {
                             let tls = TlsConnector::from(tls.client_config);
-                            let tls = tls.connect(dns_name, AsyncIoStdAsTokio(tcp));
+                            let tls = tls.connect(dns_name.to_owned(), AsyncIoStdAsTokio(tcp));
                             Self::TlsConnecting {
                                 name_server_name,
                                 name_server,
@@ -537,20 +538,21 @@ mod tests {
     use std::net::SocketAddr;
 
     use rustls::KeyLogFile;
+    use test_support::subscribe;
     use tokio::net::TcpStream as TokioTcpStream;
     use tokio::runtime::Runtime;
 
     use crate::iocompat::AsyncIoTokioAsStd;
     use crate::op::{Message, Query, ResponseCode};
     use crate::rr::rdata::{A, AAAA};
-    use crate::rr::{Name, RData, RecordType};
+    use crate::rr::{Name, RecordType};
     use crate::xfer::{DnsRequestOptions, FirstAnswer};
 
     use super::*;
 
     #[test]
     fn test_https_google() {
-        //env_logger::try_init().ok();
+        subscribe();
 
         let google = SocketAddr::from(([8, 8, 8, 8], 443));
         let mut request = Message::new();
@@ -575,12 +577,9 @@ mod tests {
             .expect("send_message failed");
 
         let record = &response.answers()[0];
-        let addr = record
-            .data()
-            .and_then(RData::as_a)
-            .expect("Expected A record");
+        let addr = record.data().as_a().expect("Expected A record");
 
-        assert_eq!(addr, &A::new(93, 184, 216, 34));
+        assert_eq!(addr, &A::new(93, 184, 215, 14));
 
         //
         // assert that the connection works for a second query
@@ -603,19 +602,19 @@ mod tests {
             let record = &response.answers()[0];
             let addr = record
                 .data()
-                .and_then(RData::as_aaaa)
+                .as_aaaa()
                 .expect("invalid response, expected A record");
 
             assert_eq!(
                 addr,
-                &AAAA::new(0x2606, 0x2800, 0x0220, 0x0001, 0x0248, 0x1893, 0x25c8, 0x1946)
+                &AAAA::new(0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c)
             );
         }
     }
 
     #[test]
     fn test_https_google_with_pure_ip_address_server() {
-        //env_logger::try_init().ok();
+        subscribe();
 
         let google = SocketAddr::from(([8, 8, 8, 8], 443));
         let mut request = Message::new();
@@ -640,12 +639,9 @@ mod tests {
             .expect("send_message failed");
 
         let record = &response.answers()[0];
-        let addr = record
-            .data()
-            .and_then(RData::as_a)
-            .expect("Expected A record");
+        let addr = record.data().as_a().expect("Expected A record");
 
-        assert_eq!(addr, &A::new(93, 184, 216, 34));
+        assert_eq!(addr, &A::new(93, 184, 215, 14));
 
         //
         // assert that the connection works for a second query
@@ -668,12 +664,12 @@ mod tests {
             let record = &response.answers()[0];
             let addr = record
                 .data()
-                .and_then(RData::as_aaaa)
+                .as_aaaa()
                 .expect("invalid response, expected A record");
 
             assert_eq!(
                 addr,
-                &AAAA::new(0x2606, 0x2800, 0x0220, 0x0001, 0x0248, 0x1893, 0x25c8, 0x1946)
+                &AAAA::new(0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c)
             );
         }
     }
@@ -681,7 +677,7 @@ mod tests {
     #[test]
     #[ignore] // cloudflare has been unreliable as a public test service.
     fn test_https_cloudflare() {
-        // self::env_logger::try_init().ok();
+        subscribe();
 
         let cloudflare = SocketAddr::from(([1, 1, 1, 1], 443));
         let mut request = Message::new();
@@ -708,10 +704,10 @@ mod tests {
         let record = &response.answers()[0];
         let addr = record
             .data()
-            .and_then(RData::as_a)
+            .as_a()
             .expect("invalid response, expected A record");
 
-        assert_eq!(addr, &A::new(93, 184, 216, 34));
+        assert_eq!(addr, &A::new(93, 184, 215, 14));
 
         //
         // assert that the connection works for a second query
@@ -730,12 +726,12 @@ mod tests {
         let record = &response.answers()[0];
         let addr = record
             .data()
-            .and_then(RData::as_aaaa)
+            .as_aaaa()
             .expect("invalid response, expected A record");
 
         assert_eq!(
             addr,
-            &AAAA::new(0x2606, 0x2800, 0x0220, 0x0001, 0x0248, 0x1893, 0x25c8, 0x1946)
+            &AAAA::new(0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c)
         );
     }
 
@@ -763,21 +759,14 @@ mod tests {
             }
         }
         #[cfg(feature = "webpki-roots")]
-        root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        }));
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-        let mut client_config = ClientConfig::builder()
-            .with_safe_default_cipher_suites()
-            .with_safe_default_kx_groups()
-            .with_safe_default_protocol_versions()
-            .unwrap()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
+        let mut client_config =
+            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
 
         client_config.alpn_protocols = vec![ALPN_H2.to_vec()];
         client_config

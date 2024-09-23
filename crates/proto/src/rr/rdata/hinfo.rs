@@ -7,10 +7,10 @@
 
 //! HINFO record for storing host information
 
+use alloc::{boxed::Box, string::String};
 use core::fmt;
 
-use alloc::{boxed::Box, string::String};
-#[cfg(feature = "serde-config")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -45,7 +45,7 @@ use crate::{
 /// ```
 ///
 /// [rfc1035]: https://tools.ietf.org/html/rfc1035
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct HINFO {
     cpu: Box<[u8]>,
@@ -57,8 +57,8 @@ impl HINFO {
     ///
     /// # Arguments
     ///
-    /// * `cpu` - A <character-string> which specifies the CPU type.
-    /// * `os` - A <character-string> which specifies the operating system type.
+    /// * `cpu` - A `character-string` which specifies the CPU type.
+    /// * `os` - A `character-string` which specifies the operating system type.
     ///
     /// # Return value
     ///
@@ -75,8 +75,8 @@ impl HINFO {
     ///
     /// # Arguments
     ///
-    /// * `cpu` - A <character-string> which specifies the CPU type.
-    /// * `os` - A <character-string> which specifies the operating system type.
+    /// * `cpu` - A `character-string` which specifies the CPU type.
+    /// * `os` - A `character-string` which specifies the operating system type.
     ///
     /// # Return value
     ///
@@ -85,12 +85,12 @@ impl HINFO {
         Self { cpu, os }
     }
 
-    /// A <character-string> which specifies the CPU type.
+    /// A `character-string` which specifies the CPU type.
     pub fn cpu(&self) -> &[u8] {
         &self.cpu
     }
 
-    /// A <character-string> which specifies the operating system type.
+    /// A `character-string` which specifies the operating system type.
     pub fn os(&self) -> &[u8] {
         &self.os
     }

@@ -8,23 +8,30 @@
 // TODO, I've implemented this as a separate entity from the cache, but I wonder if the cache
 //  should be the only "front-end" for lookups, where if that misses, then we go to the catalog
 //  then, if requested, do a recursive lookup... i.e. the catalog would only point to files.
-use std::{borrow::Borrow, collections::HashMap, future::Future, io};
+use std::{borrow::Borrow, collections::HashMap, io, sync::Arc};
 
 use cfg_if::cfg_if;
 use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "dnssec")]
-use crate::proto::rr::{
-    dnssec::{Algorithm, SupportedAlgorithms},
-    rdata::opt::{EdnsCode, EdnsOption},
+use crate::{
+    authority::Nsec3QueryInfo,
+    config::dnssec::NxProofKind,
+    proto::rr::{
+        dnssec::{Algorithm, SupportedAlgorithms},
+        rdata::opt::{EdnsCode, EdnsOption},
+    },
 };
 use crate::{
     authority::{
-        AuthLookup, AuthorityObject, EmptyLookup, LookupError, LookupObject, LookupOptions,
+        authority_object::DnssecSummary, AuthLookup, AuthorityObject, EmptyLookup,
+        LookupControlFlow, LookupError, LookupObject, LookupOptions, LookupRecords,
         MessageResponse, MessageResponseBuilder, ZoneType,
     },
-    proto::op::{Edns, Header, LowerQuery, MessageType, OpCode, ResponseCode},
-    proto::rr::{LowerName, Record, RecordType},
+    proto::{
+        op::{Edns, Header, LowerQuery, MessageType, OpCode, ResponseCode},
+        rr::{LowerName, Record, RecordSet, RecordType},
+    },
     server::{Request, RequestHandler, RequestInfo, ResponseHandler, ResponseInfo},
 };
 
@@ -349,7 +356,7 @@ impl Catalog {
         let authority = self.find(request_info.query.name());
 
         if let Some(authority) = authority {
-            lookup(
+            let result = lookup(
                 request_info,
                 authority,
                 request,
@@ -358,7 +365,26 @@ impl Catalog {
                     .map(|arc| Borrow::<Edns>::borrow(arc).clone()),
                 response_handle.clone(),
             )
-            .await
+            .await;
+
+            use LookupControlFlow::*;
+            match result {
+                // The current authority in the chain did not handle the request, so we need to try the next one, if any.
+                Skip => {
+                    debug!("catalog::lookup::authority did not handle request");
+                    panic!("correct implementation is part of the chained recursor PR");
+                }
+                Continue(Ok(lookup)) | Break(Ok(lookup)) => {
+                    debug!("result: {lookup:?}");
+                    debug!("catalog::lookup::authority did handle request with {result}. stopping");
+
+                    lookup
+                }
+                Continue(Err(e)) | Break(Err(e)) => {
+                    debug!("an unexpected error occured during catalog lookup: {e:?}");
+                    ResponseInfo::serve_failed()
+                }
+            }
         } else {
             // if this is empty then the there are no authorities registered that can handle the request
             let response = MessageResponseBuilder::new(Some(request.raw_query()));
@@ -403,7 +429,7 @@ async fn lookup<'a, R: ResponseHandler + Unpin>(
     request: &Request,
     response_edns: Option<Edns>,
     response_handle: R,
-) -> ResponseInfo {
+) -> LookupControlFlow<ResponseInfo> {
     let query = request_info.query;
     debug!(
         "request: {} found authority: {}",
@@ -411,7 +437,7 @@ async fn lookup<'a, R: ResponseHandler + Unpin>(
         authority.origin()
     );
 
-    let (response_header, sections) = build_response(
+    let response = build_response(
         authority,
         request_info,
         request.id(),
@@ -421,7 +447,16 @@ async fn lookup<'a, R: ResponseHandler + Unpin>(
     )
     .await;
 
-    let response = MessageResponseBuilder::new(Some(request.raw_query())).build(
+    let is_continue = response.is_continue();
+
+    let (response_header, sections) = match response {
+        Continue(Ok(lookup)) | Break(Ok(lookup)) => lookup,
+        Continue(Err(e)) => return Continue(Err(e)),
+        Break(Err(e)) => return Break(Err(e)),
+        Skip => return Skip,
+    };
+
+    let message_response = MessageResponseBuilder::new(Some(request.raw_query())).build(
         response_header,
         sections.answers.iter(),
         sections.ns.iter(),
@@ -429,14 +464,30 @@ async fn lookup<'a, R: ResponseHandler + Unpin>(
         sections.additionals.iter(),
     );
 
-    let result = send_response(response_edns.clone(), response, response_handle.clone()).await;
+    let result = send_response(
+        response_edns.clone(),
+        message_response,
+        response_handle.clone(),
+    )
+    .await;
 
+    use LookupControlFlow::*;
     match result {
         Err(e) => {
             error!("error sending response: {}", e);
-            ResponseInfo::serve_failed()
+            if is_continue {
+                Continue(Err(LookupError::Io(e)))
+            } else {
+                Break(Err(LookupError::Io(e)))
+            }
         }
-        Ok(i) => i,
+        Ok(l) => {
+            if is_continue {
+                Continue(Ok(l))
+            } else {
+                Break(Ok(l))
+            }
+        }
     }
 }
 
@@ -471,11 +522,11 @@ async fn build_response(
     request_header: &Header,
     query: &LowerQuery,
     edns: Option<&Edns>,
-) -> (Header, LookupSections) {
+) -> LookupControlFlow<(Header, LookupSections)> {
     let lookup_options = lookup_options_for_edns(edns);
 
     // log algorithms being requested
-    if lookup_options.is_dnssec() {
+    if lookup_options.dnssec_ok() {
         info!(
             "request: {} lookup_options: {:?}",
             request_id, lookup_options
@@ -486,13 +537,23 @@ async fn build_response(
     response_header.set_authoritative(authority.zone_type().is_authoritative());
 
     debug!("performing {} on {}", query, authority.origin());
-    let future = authority.search(request_info, lookup_options);
+
+    // Wait so we can determine if we need to fire a request to the next authority in a chained
+    // configuration if the current authority declines to answer. NOTE: This is in preparation
+    // for the chained authority PR.
+    let result = authority.search(request_info, lookup_options).await;
+
+    // Abort only if the authority declined to handle the request.
+    if let LookupControlFlow::Skip = result {
+        trace!("build_response: aborting search on lookupcontrolflow::skip");
+        return LookupControlFlow::Skip;
+    }
 
     #[allow(deprecated)]
     let sections = match authority.zone_type() {
         ZoneType::Primary | ZoneType::Secondary | ZoneType::Master | ZoneType::Slave => {
             send_authoritative_response(
-                future,
+                result,
                 authority,
                 &mut response_header,
                 lookup_options,
@@ -502,34 +563,43 @@ async fn build_response(
             .await
         }
         ZoneType::Forward | ZoneType::Hint => {
-            send_forwarded_response(future, request_header, &mut response_header).await
+            send_forwarded_response(
+                result,
+                request_header,
+                &mut response_header,
+                authority.can_validate_dnssec(),
+            )
+            .await
         }
     };
 
-    (response_header, sections)
+    LookupControlFlow::Continue(Ok((response_header, sections)))
 }
 
 async fn send_authoritative_response(
-    future: impl Future<Output = Result<Box<dyn LookupObject>, LookupError>>,
+    response: LookupControlFlow<Box<dyn LookupObject>>,
     authority: &dyn AuthorityObject,
     response_header: &mut Header,
     lookup_options: LookupOptions,
-    request_id: u16,
+    _request_id: u16,
     query: &LowerQuery,
 ) -> LookupSections {
     // In this state we await the records, on success we transition to getting
     // NS records, which indicate an authoritative response.
     //
     // On Errors, the transition depends on the type of error.
-    let answers = match future.await {
-        Ok(records) => {
+
+    use LookupControlFlow::*;
+    let answers = match response {
+        Continue(Ok(records)) | Break(Ok(records)) => {
             response_header.set_response_code(ResponseCode::NoError);
             response_header.set_authoritative(true);
             Some(records)
         }
         // This request was refused
         // TODO: there are probably other error cases that should just drop through (FormErr, ServFail)
-        Err(LookupError::ResponseCode(ResponseCode::Refused)) => {
+        Continue(Err(LookupError::ResponseCode(ResponseCode::Refused)))
+        | Break(Err(LookupError::ResponseCode(ResponseCode::Refused))) => {
             response_header.set_response_code(ResponseCode::Refused);
             return LookupSections {
                 answers: Box::<AuthLookup>::default(),
@@ -538,12 +608,16 @@ async fn send_authoritative_response(
                 additionals: Box::<AuthLookup>::default(),
             };
         }
-        Err(e) => {
+        Continue(Err(e)) | Break(Err(e)) => {
             if e.is_nx_domain() {
                 response_header.set_response_code(ResponseCode::NXDomain);
             } else if e.is_name_exists() {
                 response_header.set_response_code(ResponseCode::NoError);
             };
+            None
+        }
+        Skip => {
+            debug!("unexpected lookup skip");
             None
         }
     };
@@ -553,39 +627,127 @@ async fn send_authoritative_response(
         if query.query_type().is_soa() {
             // This was a successful authoritative lookup for SOA:
             //   get the NS records as well.
+
+            use LookupControlFlow::*;
             match authority.ns(lookup_options).await {
-                Ok(ns) => (Some(ns), None),
-                Err(e) => {
+                Continue(Ok(ns)) | Break(Ok(ns)) => (Some(ns), None),
+                Continue(Err(e)) | Break(Err(e)) => {
                     warn!("ns_lookup errored: {}", e);
+                    (None, None)
+                }
+                Skip => {
+                    warn!("ns_lookup unexpected skip");
                     (None, None)
                 }
             }
         } else {
+            #[cfg(feature = "dnssec")]
+            {
+                if let Some(NxProofKind::Nsec3 {
+                    algorithm,
+                    salt,
+                    iterations,
+                }) = authority.nx_proof_kind()
+                {
+                    // This unwrap will not panic as we know that `answers` is `Some`.
+                    let has_wildcard_match =
+                        answers.as_ref().unwrap().iter().any(|rr| {
+                            rr.record_type() == RecordType::RRSIG && rr.name().is_wildcard()
+                        });
+                    match authority
+                        .get_nsec3_records(
+                            Nsec3QueryInfo {
+                                qname: query.name(),
+                                qtype: query.query_type(),
+                                has_wildcard_match,
+                                algorithm: *algorithm,
+                                salt,
+                                iterations: *iterations,
+                            },
+                            lookup_options,
+                        )
+                        .await
+                    {
+                        // run the soa lookup
+                        Continue(Ok(nsecs)) | Break(Ok(nsecs)) => (Some(nsecs), None),
+                        Continue(Err(e)) | Break(Err(e)) => {
+                            warn!("failed to lookup nsecs for request {_request_id}: {e}");
+                            (None, None)
+                        }
+                        Skip => {
+                            warn!("unexpected lookup skip for request {_request_id}");
+                            (None, None)
+                        }
+                    }
+                } else {
+                    (None, None)
+                }
+            }
+            #[cfg(not(feature = "dnssec"))]
             (None, None)
         }
     } else {
-        let nsecs = if lookup_options.is_dnssec() {
-            // in the dnssec case, nsec records should exist, we return NoError + NoData + NSec...
-            debug!("request: {} non-existent adding nsecs", request_id);
-            // run the nsec lookup future, and then transition to get soa
-            let future = authority.get_nsec_records(query.name(), lookup_options);
-            match future.await {
-                // run the soa lookup
-                Ok(nsecs) => Some(nsecs),
-                Err(e) => {
-                    warn!("failed to lookup nsecs: {}", e);
-                    None
+        let nsecs = if lookup_options.dnssec_ok() {
+            #[cfg(feature = "dnssec")]
+            {
+                // in the dnssec case, nsec records should exist, we return NoError + NoData + NSec...
+                debug!("request: {_request_id} non-existent adding nsecs");
+                match authority.nx_proof_kind() {
+                    Some(nx_proof_kind) => {
+                        // run the nsec lookup future, and then transition to get soa
+                        let future = match nx_proof_kind {
+                            NxProofKind::Nsec => {
+                                authority.get_nsec_records(query.name(), lookup_options)
+                            }
+                            NxProofKind::Nsec3 {
+                                algorithm,
+                                salt,
+                                iterations,
+                            } => authority.get_nsec3_records(
+                                Nsec3QueryInfo {
+                                    qname: query.name(),
+                                    qtype: query.query_type(),
+                                    has_wildcard_match: false,
+                                    algorithm: *algorithm,
+                                    salt,
+                                    iterations: *iterations,
+                                },
+                                lookup_options,
+                            ),
+                        };
+
+                        match future.await {
+                            // run the soa lookup
+                            Continue(Ok(nsecs)) | Break(Ok(nsecs)) => Some(nsecs),
+                            Continue(Err(e)) | Break(Err(e)) => {
+                                warn!("failed to lookup nsecs for request {_request_id}: {e}");
+                                None
+                            }
+                            Skip => {
+                                warn!("unexpected lookup skip for request {_request_id}");
+                                None
+                            }
+                        }
+                    }
+                    None => None,
                 }
             }
+            #[cfg(not(feature = "dnssec"))]
+            None
         } else {
             None
         };
 
+        use LookupControlFlow::*;
         match authority.soa_secure(lookup_options).await {
-            Ok(soa) => (nsecs, Some(soa)),
-            Err(e) => {
+            Continue(Ok(soa)) | Break(Ok(soa)) => (nsecs, Some(soa)),
+            Continue(Err(e)) | Break(Err(e)) => {
                 warn!("failed to lookup soa: {}", e);
                 (nsecs, None)
+            }
+            Skip => {
+                warn!("unexpected lookup skip");
+                (None, None)
             }
         }
     };
@@ -614,43 +776,110 @@ async fn send_authoritative_response(
 }
 
 async fn send_forwarded_response(
-    future: impl Future<Output = Result<Box<dyn LookupObject>, LookupError>>,
+    response: LookupControlFlow<Box<dyn LookupObject>>,
     request_header: &Header,
     response_header: &mut Header,
+    can_validate_dnssec: bool,
 ) -> LookupSections {
     response_header.set_recursion_available(true);
     response_header.set_authoritative(false);
 
-    // Don't perform the recursive query if this is disabled...
-    let answers = if !request_header.recursion_desired() {
-        // cancel the future??
-        // future.cancel();
-        drop(future);
+    enum Answer {
+        Normal(Box<dyn LookupObject>),
+        NoRecords(Box<AuthLookup>),
+    }
 
+    // Don't perform the recursive query if this is disabled...
+    let mut answers = if !request_header.recursion_desired() {
         info!(
             "request disabled recursion, returning no records: {}",
             request_header.id()
         );
 
-        Box::new(EmptyLookup)
+        Answer::Normal(Box::new(EmptyLookup))
     } else {
-        match future.await {
-            Err(e) => {
+        use LookupControlFlow::*;
+        match response {
+            Continue(Ok(lookup)) | Break(Ok(lookup)) => Answer::Normal(lookup),
+            Continue(Err(e)) | Break(Err(e)) if e.is_no_records_found() => {
                 if e.is_nx_domain() {
                     response_header.set_response_code(ResponseCode::NXDomain);
                 }
                 debug!("error resolving: {}", e);
-                Box::new(EmptyLookup)
+
+                if let Some(soa) = e.into_soa() {
+                    let soa = soa.into_record_of_rdata();
+                    let record_set = Arc::new(RecordSet::from(soa));
+                    let records = LookupRecords::new(LookupOptions::default(), record_set);
+                    Answer::NoRecords(Box::new(AuthLookup::SOA(records)))
+                } else {
+                    Answer::Normal(Box::new(EmptyLookup))
+                }
             }
-            Ok(rsp) => rsp,
+            Continue(Err(e)) | Break(Err(e)) => {
+                debug!("error resolving: {}", e);
+                Answer::Normal(Box::new(EmptyLookup))
+            }
+            Skip => {
+                info!("unexpected lookup skip");
+                Answer::Normal(Box::new(EmptyLookup))
+            }
         }
     };
 
-    LookupSections {
-        answers,
-        ns: Box::<AuthLookup>::default(),
-        soa: Box::<AuthLookup>::default(),
-        additionals: Box::<AuthLookup>::default(),
+    if can_validate_dnssec {
+        // section 3.2.2 ("the CD bit") of RFC4035 is a bit underspecified because it does not use
+        // RFC2119 vocabulary ("MUST", "MAY", etc.) in some sentences that describe the resolver's
+        // behavior.
+        //
+        // A. it is clear that if CD=1 in the query then data that fails DNSSEC validation SHOULD
+        //   be returned
+        //
+        // B. it also clear that if CD=0 and DNSSEC validation fails then the status MUST be
+        //   SERVFAIL
+        //
+        // C. it's less clear if DNSSEC validation can be skippped altogether when CD=1
+        //
+        // the logic here follows `unbound`'s interpretation of that section
+        //
+        // 0. the requirements A and B are implemented
+        // 1. DNSSEC validation happens regardless of the state of the CD bit
+        // 2. the AD bit gets set if DNSSEC validation succeeded regardless of the state of the
+        //   CD bit
+        //
+        // this last point can result in responses that have both AD=1 and CD=1. RFC4035 is unclear
+        // whether that's a valid state but that's what `unbound` does
+        //
+        // we may want to interpret (B) as allowed ("MAY be skipped") as a form of optimization in
+        // the future to reduce the number of network transactions that a CD=1 query needs.
+        if let Answer::Normal(ref mut answers) = answers {
+            match answers.dnssec_summary() {
+                DnssecSummary::Secure => {
+                    response_header.set_authentic_data(true);
+                }
+                DnssecSummary::Bogus if !request_header.checking_disabled() => {
+                    response_header.set_response_code(ResponseCode::ServFail);
+                    // do not return Bogus records when CD=0
+                    *answers = Box::new(EmptyLookup);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    match answers {
+        Answer::Normal(answers) => LookupSections {
+            answers,
+            ns: Box::<AuthLookup>::default(),
+            soa: Box::<AuthLookup>::default(),
+            additionals: Box::<AuthLookup>::default(),
+        },
+        Answer::NoRecords(soa) => LookupSections {
+            answers: Box::new(EmptyLookup),
+            ns: Box::<AuthLookup>::default(),
+            soa,
+            additionals: Box::<AuthLookup>::default(),
+        },
     }
 }
 

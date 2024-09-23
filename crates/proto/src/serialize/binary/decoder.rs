@@ -132,7 +132,7 @@ impl<'a> BinDecoder<'a> {
 
     /// This is a pretty efficient clone, as the buffer is never cloned, and only the index is set
     ///  to the value passed in
-    pub fn clone(&self, index_at: u16) -> BinDecoder<'a> {
+    pub fn clone(&self, index_at: u16) -> Self {
         BinDecoder {
             buffer: self.buffer,
             remaining: &self.buffer[index_at as usize..],
@@ -246,7 +246,7 @@ impl<'a> BinDecoder<'a> {
     }
 }
 
-#[cfg(tests)]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -256,13 +256,13 @@ mod tests {
         let mut decoder = BinDecoder::new(deadbeef);
 
         let read = decoder.read_slice(4).expect("failed to read dead");
-        assert_eq!(read, "dead");
+        assert_eq!(&read.unverified(), b"dead");
 
         let read = decoder.read_slice(2).expect("failed to read be");
-        assert_eq!(read, "be");
+        assert_eq!(&read.unverified(), b"be");
 
         let read = decoder.read_slice(0).expect("failed to read nothing");
-        assert_eq!(read, "");
+        assert_eq!(&read.unverified(), b"");
 
         // this should fail
         assert!(decoder.read_slice(3).is_err());
@@ -273,20 +273,19 @@ mod tests {
         let deadbeef = b"deadbeef";
         let mut decoder = BinDecoder::new(deadbeef);
 
-        decoder.read_slice_from(4).expect("failed to read dead");
+        decoder.read_slice(4).expect("failed to read dead");
         let read = decoder.slice_from(0).expect("failed to get slice");
-        assert_eq!(read, "dead");
+        assert_eq!(&read, b"dead");
 
         decoder.read_slice(2).expect("failed to read be");
         let read = decoder.slice_from(4).expect("failed to get slice");
-        assert_eq!(read, "be");
+        assert_eq!(&read, b"be");
 
         decoder.read_slice(0).expect("failed to read nothing");
         let read = decoder.slice_from(4).expect("failed to get slice");
-        assert_eq!(read, "be");
+        assert_eq!(&read, b"be");
 
         // this should fail
-        assert!(decoder.slice_from(6).is_err());
         assert!(decoder.slice_from(10).is_err());
     }
 }

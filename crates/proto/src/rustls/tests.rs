@@ -7,27 +7,29 @@
 
 #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+use alloc::borrow::ToOwned;
+#[cfg(feature = "std")]
 use alloc::sync::Arc;
-use std::borrow::ToOwned;
+use core::net::SocketAddr;
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::vec::Vec;
+#[cfg(feature = "std")]
 use std::env;
+#[cfg(feature = "std")]
 use std::fs::File;
+#[cfg(feature = "std")]
 use std::io::{Read, Write};
-#[cfg(not(target_os = "linux"))]
-use std::net::Ipv6Addr;
-use std::net::SocketAddr;
-use std::net::{IpAddr, Ipv4Addr};
-use std::println;
-use std::string::ToString;
+#[cfg(feature = "std")]
 use std::sync::atomic;
-use std::vec::Vec;
+#[cfg(feature = "std")]
 use std::{thread, time};
 
 use openssl::pkey::PKey;
 use openssl::ssl::*;
-use openssl::x509::store::X509StoreBuilder;
 use openssl::x509::*;
 
 use futures_util::stream::StreamExt;
+use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig;
 use tokio::net::TcpStream as TokioTcpStream;
 use tokio::runtime::Runtime;
@@ -42,21 +44,12 @@ use crate::{iocompat::AsyncIoTokioAsStd, DnsStreamHandle};
 // #[cfg(not(target_os = "linux"))]
 #[test]
 fn test_tls_client_stream_ipv4() {
-    tls_client_stream_test(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), false)
-}
-
-// FIXME: mtls is disabled at the moment, it causes a hang on Linux, and is currently not supported on macOS
-#[cfg(feature = "mtls")]
-#[test]
-#[cfg(not(target_os = "macos"))] // ignored until Travis-CI fixes IPv6
-fn test_tls_client_stream_ipv4_mtls() {
-    tls_client_stream_test(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), true)
+    tls_client_stream_test(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
 }
 
 #[test]
-#[cfg(not(target_os = "linux"))] // ignored until Travis-CI fixes IPv6
 fn test_tls_client_stream_ipv6() {
-    tls_client_stream_test(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), false)
+    tls_client_stream_test(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)))
 }
 
 const TEST_BYTES: &[u8; 8] = b"DEADBEEF";
@@ -72,7 +65,7 @@ fn read_file(path: &str) -> Vec<u8> {
 }
 
 #[allow(unused_mut)]
-fn tls_client_stream_test(server_addr: IpAddr, mtls: bool) {
+fn tls_client_stream_test(server_addr: IpAddr) {
     let succeeded = Arc::new(atomic::AtomicBool::new(false));
     let succeeded_clone = succeeded.clone();
     thread::Builder::new()
@@ -94,8 +87,8 @@ fn tls_client_stream_test(server_addr: IpAddr, mtls: bool) {
     let server_path = env::var("TDNS_WORKSPACE_ROOT").unwrap_or_else(|_| "../..".to_owned());
     println!("using server src path: {server_path}");
 
-    let root_cert_der = read_file(&format!("{server_path}/tests/test-data/ca.der"));
-    let root_cert_der_copy = root_cert_der.clone();
+    let root_cert_der =
+        CertificateDer::from(read_file(&format!("{server_path}/tests/test-data/ca.der")));
 
     // Generate X509 certificate
     let ca = X509::from_der(&root_cert_der).expect("could not read CA");
@@ -131,23 +124,8 @@ fn tls_client_stream_test(server_addr: IpAddr, mtls: bool) {
 
             {
                 let mut openssl_ctx_builder = &mut tls;
-
                 let mut mode = SslVerifyMode::empty();
-
-                // FIXME: mtls tests hang on Linux...
-                if mtls {
-                    mode = SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT;
-
-                    let mut store = X509StoreBuilder::new().unwrap();
-                    let root_ca = X509::from_der(&root_cert_der_copy).unwrap();
-                    store.add_cert(root_ca).unwrap();
-                    openssl_ctx_builder
-                        .set_verify_cert_store(store.build())
-                        .unwrap();
-                } else {
-                    mode.insert(SslVerifyMode::NONE);
-                }
-
+                mode.insert(SslVerifyMode::NONE);
                 openssl_ctx_builder.set_verify(mode);
             }
 
@@ -206,18 +184,14 @@ fn tls_client_stream_test(server_addr: IpAddr, mtls: bool) {
     // let timeout = Timeout::new(Duration::from_secs(5));
 
     let mut roots = rustls::RootCertStore::empty();
-    let (_, ignored) = roots.add_parsable_certificates(&[root_cert_der]);
+    let (_, ignored) = roots.add_parsable_certificates([root_cert_der]);
     assert_eq!(ignored, 0, "bad certificate!");
-    let mut config = ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-
-    // barrier.wait();
-    // fix MTLS
-    // if mtls {
-    //     config_mtls(&root_pkey, &root_name, &root_cert, &mut builder);
-    // }
+    let mut config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
 
     let (stream, mut sender) = tls_connect::<AsyncIoTokioAsStd<TokioTcpStream>>(
         server_addr,
@@ -244,20 +218,3 @@ fn tls_client_stream_test(server_addr: IpAddr, mtls: bool) {
     succeeded.store(true, std::sync::atomic::Ordering::Relaxed);
     server_handle.join().expect("server thread failed");
 }
-
-// TODO: fix MTLS
-// #[allow(unused_variables)]
-// fn config_mtls(root_pkey: &PKey,
-//                root_name: &X509Name,
-//                root_cert: &X509,
-//                builder: &mut TlsStreamBuilder) {
-//     // signed by the same root cert
-//     let client_name = "resolv.example.com";
-//     let (_ /*client_pkey*/, _ /*client_cert*/, client_identity) =
-//         cert(client_name, root_pkey, root_name, root_cert);
-//     let client_identity =
-//         native_tls::server_cert::from_der(&client_identity.to_der().unwrap(), "mypass").unwrap();
-
-//     #[cfg(feature = "mtls")]
-//     builder.identity(client_identity);
-// }

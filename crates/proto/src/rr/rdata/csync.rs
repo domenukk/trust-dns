@@ -7,10 +7,10 @@
 
 //! CSYNC record for synchronizing data from a child zone to the parent
 
+use alloc::vec::Vec;
 use core::fmt;
 
-use alloc::vec::Vec;
-#[cfg(feature = "serde-config")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -41,7 +41,7 @@ use crate::{
 /// ```
 ///
 /// [rfc7477]: https://tools.ietf.org/html/rfc7477
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct CSYNC {
     soa_serial: u32,

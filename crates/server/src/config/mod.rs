@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use cfg_if::cfg_if;
+use ipnet::IpNet;
 use serde::{self, Deserialize};
 
 use crate::proto::error::ProtoResult;
@@ -39,6 +40,7 @@ static DEFAULT_TCP_REQUEST_TIMEOUT: u64 = 5;
 
 /// Server configuration
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// The list of IPv4 addresses to listen on
     #[serde(default)]
@@ -56,6 +58,16 @@ pub struct Config {
     quic_listen_port: Option<u16>,
     /// HTTP/3 port to listen on
     h3_listen_port: Option<u16>,
+    /// Disable TCP protocol
+    disable_tcp: Option<bool>,
+    /// Disable UDP protocol
+    disable_udp: Option<bool>,
+    /// Disable TLS protocol
+    disable_tls: Option<bool>,
+    /// Disable HTTPS protocol
+    disable_https: Option<bool>,
+    /// Disable QUIC protocol
+    disable_quic: Option<bool>,
     /// Timeout associated to a request before it is closed.
     tcp_request_timeout: Option<u64>,
     /// Level at which to log, default is INFO
@@ -68,6 +80,12 @@ pub struct Config {
     /// Certificate to associate to TLS connections (currently the same is used for HTTPS and TLS)
     #[cfg(feature = "dnssec")]
     tls_cert: Option<dnssec::TlsCertConfig>,
+    /// Networks denied to access the server
+    #[serde(default)]
+    deny_networks: Vec<IpNet>,
+    /// Networks allowed to access the server
+    #[serde(default)]
+    allow_networks: Vec<IpNet>,
 }
 
 impl Config {
@@ -83,7 +101,7 @@ impl Config {
     /// Read a [`Config`] from the given TOML string.
     #[cfg(feature = "toml")]
     pub fn from_toml(toml: &str) -> ConfigResult<Self> {
-        Ok(basic_toml::from_str(toml)?)
+        Ok(toml::from_str(toml)?)
     }
 
     /// set of listening ipv4 addresses (for TCP and UDP)
@@ -119,6 +137,31 @@ impl Config {
     /// port on which to listen for HTTP/3 connections
     pub fn get_h3_listen_port(&self) -> u16 {
         self.h3_listen_port.unwrap_or(DEFAULT_H3_PORT)
+    }
+
+    /// get if TCP protocol should be disabled
+    pub fn get_disable_tcp(&self) -> bool {
+        self.disable_tcp.unwrap_or_default()
+    }
+
+    /// get if UDP protocol should be disabled
+    pub fn get_disable_udp(&self) -> bool {
+        self.disable_udp.unwrap_or_default()
+    }
+
+    /// get if TLS protocol should be disabled
+    pub fn get_disable_tls(&self) -> bool {
+        self.disable_tls.unwrap_or_default()
+    }
+
+    /// get if HTTPS protocol should be disabled
+    pub fn get_disable_https(&self) -> bool {
+        self.disable_https.unwrap_or_default()
+    }
+
+    /// get if QUIC protocol should be disabled
+    pub fn get_disable_quic(&self) -> bool {
+        self.disable_quic.unwrap_or_default()
     }
 
     /// default timeout for all TCP connections before forcibly shutdown
@@ -160,10 +203,21 @@ impl Config {
             }
         }
     }
+
+    /// get the networks denied access to this server
+    pub fn get_deny_networks(&self) -> &[IpNet] {
+        &self.deny_networks
+    }
+
+    /// get the networks allowed to connect to this server
+    pub fn get_allow_networks(&self) -> &[IpNet] {
+        &self.allow_networks
+    }
 }
 
 /// Configuration for a zone
 #[derive(Deserialize, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct ZoneConfig {
     /// name of the zone
     pub zone: String, // TODO: make Domain::Name decodable
@@ -183,6 +237,9 @@ pub struct ZoneConfig {
     /// Store configurations, TODO: allow chained Stores
     #[serde(default)]
     pub stores: Option<StoreConfig>,
+    /// The kind of non-existence proof provided by the nameserver
+    #[cfg(feature = "dnssec")]
+    pub nx_proof_kind: Option<dnssec::NxProofKind>,
 }
 
 impl ZoneConfig {
@@ -197,6 +254,8 @@ impl ZoneConfig {
     /// * `allow_axfr` - enable AXFR transfers
     /// * `enable_dnssec` - enable signing of the zone for DNSSEC
     /// * `keys` - list of private and public keys used to sign a zone
+    /// * `nx_proof_kind` - the kind of non-existence proof provided by the nameserver
+    #[cfg_attr(feature = "dnssec", allow(clippy::too_many_arguments))]
     pub fn new(
         zone: String,
         zone_type: ZoneType,
@@ -205,6 +264,7 @@ impl ZoneConfig {
         allow_axfr: Option<bool>,
         enable_dnssec: Option<bool>,
         keys: Vec<dnssec::KeyConfig>,
+        #[cfg(feature = "dnssec")] nx_proof_kind: Option<dnssec::NxProofKind>,
     ) -> Self {
         Self {
             zone,
@@ -215,6 +275,8 @@ impl ZoneConfig {
             enable_dnssec,
             keys,
             stores: None,
+            #[cfg(feature = "dnssec")]
+            nx_proof_kind,
         }
     }
 
@@ -264,5 +326,17 @@ impl ZoneConfig {
     #[cfg_attr(docsrs, doc(cfg(feature = "dnssec")))]
     pub fn get_keys(&self) -> &[dnssec::KeyConfig] {
         &self.keys
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "toml")]
+    #[test]
+    fn example_recursor_config() {
+        toml::from_str::<super::Config>(include_str!(
+            "../../../../tests/test-data/test_configs/example_recursor.toml"
+        ))
+        .unwrap();
     }
 }

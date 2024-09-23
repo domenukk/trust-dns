@@ -80,10 +80,10 @@ pub fn update_header_counts(
     is_truncated: bool,
     counts: HeaderCounts,
 ) -> Header {
-    assert!(counts.query_count <= u16::max_value() as usize);
-    assert!(counts.answer_count <= u16::max_value() as usize);
-    assert!(counts.nameserver_count <= u16::max_value() as usize);
-    assert!(counts.additional_count <= u16::max_value() as usize);
+    assert!(counts.query_count <= u16::MAX as usize);
+    assert!(counts.answer_count <= u16::MAX as usize);
+    assert!(counts.nameserver_count <= u16::MAX as usize);
+    assert!(counts.additional_count <= u16::MAX as usize);
 
     // TODO: should the function just take by value?
     let mut header = *current_header;
@@ -146,15 +146,26 @@ impl Message {
 
     /// Truncates a Message, this blindly removes all response fields and sets truncated to `true`
     pub fn truncate(&self) -> Self {
-        let mut truncated = self.clone();
-        truncated.set_truncated(true);
-        // drops additional/answer/queries so len is 0
-        truncated.take_additionals();
-        truncated.take_answers();
-        truncated.take_queries();
+        // copy header
+        let mut header = self.header;
+        header.set_truncated(true);
+        header
+            .set_additional_count(0)
+            .set_answer_count(0)
+            .set_name_server_count(0);
+
+        let mut msg = Self::new();
+        // drops additional/answer/nameservers/signature
+        // adds query/OPT
+        msg.add_queries(self.queries().iter().cloned());
+        if let Some(edns) = self.extensions().clone() {
+            msg.set_edns(edns);
+        }
+        // set header
+        msg.set_header(header);
 
         // TODO, perhaps just quickly add a few response records here? that we know would fit?
-        truncated
+        msg
     }
 
     /// Sets the `Header` with provided
@@ -220,6 +231,42 @@ impl Message {
     /// see `Header::set_response_code`
     pub fn set_response_code(&mut self, response_code: ResponseCode) -> &mut Self {
         self.header.set_response_code(response_code);
+        self
+    }
+
+    /// see `Header::set_query_count`
+    ///
+    /// this count will be ignored during serialization,
+    /// where the length of the associated records will be used instead.
+    pub fn set_query_count(&mut self, query_count: u16) -> &mut Self {
+        self.header.set_query_count(query_count);
+        self
+    }
+
+    /// see `Header::set_answer_count`
+    ///
+    /// this count will be ignored during serialization,
+    /// where the length of the associated records will be used instead.
+    pub fn set_answer_count(&mut self, answer_count: u16) -> &mut Self {
+        self.header.set_answer_count(answer_count);
+        self
+    }
+
+    /// see `Header::set_name_server_count`
+    ///
+    /// this count will be ignored during serialization,
+    /// where the length of the associated records will be used instead.
+    pub fn set_name_server_count(&mut self, name_server_count: u16) -> &mut Self {
+        self.header.set_name_server_count(name_server_count);
+        self
+    }
+
+    /// see `Header::set_additional_count`
+    ///
+    /// this count will be ignored during serialization,
+    /// where the length of the associated records will be used instead.
+    pub fn set_additional_count(&mut self, additional_count: u16) -> &mut Self {
+        self.header.set_additional_count(additional_count);
         self
     }
 
@@ -1157,10 +1204,10 @@ mod tests {
             .set_checking_disabled(true)
             .set_response_code(ResponseCode::ServFail);
 
-        message.add_answer(Record::new());
-        message.add_name_server(Record::new());
-        message.add_additional(Record::new());
-        message.update_counts(); // needed for the comparison...
+        message.add_answer(Record::stub());
+        message.add_name_server(Record::stub());
+        message.add_additional(Record::stub());
+        message.update_counts();
 
         test_emit_and_read(message);
     }
@@ -1177,6 +1224,56 @@ mod tests {
         let got = Message::read(&mut decoder).unwrap();
 
         assert_eq!(got, message);
+    }
+
+    #[test]
+    fn test_header_counts_correction_after_emit_read() {
+        let mut message = Message::new();
+
+        message
+            .set_id(10)
+            .set_message_type(MessageType::Response)
+            .set_op_code(OpCode::Update)
+            .set_authoritative(true)
+            .set_truncated(true)
+            .set_recursion_desired(true)
+            .set_recursion_available(true)
+            .set_authentic_data(true)
+            .set_checking_disabled(true)
+            .set_response_code(ResponseCode::ServFail);
+
+        message.add_answer(Record::stub());
+        message.add_name_server(Record::stub());
+        message.add_additional(Record::stub());
+
+        // at here, we don't call update_counts and we even set wrong count,
+        // because we are trying to test whether the counts in the header
+        // are correct after the message is emitted and read.
+        message.set_query_count(1);
+        message.set_answer_count(5);
+        message.set_name_server_count(5);
+        // message.set_additional_count(1);
+
+        let got = get_message_after_emitting_and_reading(message);
+
+        // make comparison
+        assert_eq!(got.query_count(), 0);
+        assert_eq!(got.answer_count(), 1);
+        assert_eq!(got.name_server_count(), 1);
+        assert_eq!(got.additional_count(), 1);
+    }
+
+    #[cfg(test)]
+    fn get_message_after_emitting_and_reading(message: Message) -> Message {
+        let mut byte_vec: Vec<u8> = Vec::with_capacity(512);
+        {
+            let mut encoder = BinEncoder::new(&mut byte_vec);
+            message.emit(&mut encoder).unwrap();
+        }
+
+        let mut decoder = BinDecoder::new(&byte_vec);
+
+        Message::read(&mut decoder).unwrap()
     }
 
     #[test]
@@ -1197,13 +1294,13 @@ mod tests {
             0x00, 0x01, 0x00, 0x01, // RecordType = A, Class = IN
             0x00, 0x00, 0x00, 0x02, // TTL = 2 seconds
             0x00, 0x04,             // record length = 4 (ipv4 address)
-            0x5D, 0xB8, 0xD8, 0x22, // address = 93.184.216.34
+            0x5D, 0xB8, 0xD7, 0x0E, // address = 93.184.215.14
         ];
 
         let mut decoder = BinDecoder::new(&buf);
         let message = Message::read(&mut decoder).unwrap();
 
-        assert_eq!(message.id(), 4096);
+        assert_eq!(message.id(), 4_096);
 
         let mut buf: Vec<u8> = Vec::with_capacity(512);
         {
@@ -1214,7 +1311,7 @@ mod tests {
         let mut decoder = BinDecoder::new(&buf);
         let message = Message::read(&mut decoder).unwrap();
 
-        assert_eq!(message.id(), 4096);
+        assert_eq!(message.id(), 4_096);
     }
 
     #[test]

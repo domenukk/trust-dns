@@ -19,7 +19,7 @@
 use std::fmt::{self, Display, Formatter};
 
 use alloc::vec::Vec;
-#[cfg(feature = "serde-config")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use tracing::warn;
@@ -29,7 +29,7 @@ use crate::rr::dnssec::Algorithm;
 use crate::serialize::binary::{BinEncodable, BinEncoder};
 
 /// Used to specify the set of SupportedAlgorithms between a client and server
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct SupportedAlgorithms {
     // right now the number of Algorithms supported are fewer than 16..
@@ -115,7 +115,7 @@ impl SupportedAlgorithms {
 
     /// Return the count of supported algorithms
     pub fn len(self) -> u16 {
-        // this is pretty much guaranteed to be less that u16::max_value()
+        // this is pretty much guaranteed to be less that u16::MAX
         self.iter().count() as u16
     }
 
@@ -194,7 +194,7 @@ impl<'a> Iterator for SupportedAlgorithmsIter<'a> {
     type Item = Algorithm;
     fn next(&mut self) -> Option<Self::Item> {
         // some quick bounds checking
-        if self.current > u8::max_value() as usize {
+        if self.current > u8::MAX as usize {
             return None;
         }
 

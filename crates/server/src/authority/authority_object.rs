@@ -11,8 +11,12 @@ use std::sync::Arc;
 
 use tracing::debug;
 
+#[cfg(feature = "dnssec")]
+use crate::{authority::Nsec3QueryInfo, config::dnssec::NxProofKind};
 use crate::{
-    authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
+    authority::{
+        Authority, LookupControlFlow, LookupOptions, MessageRequest, UpdateResult, ZoneType,
+    },
     proto::rr::{LowerName, Record, RecordType},
     server::RequestInfo,
 };
@@ -28,6 +32,9 @@ pub trait AuthorityObject: Send + Sync {
 
     /// Return true if AXFR is allowed
     fn is_axfr_allowed(&self) -> bool;
+
+    /// Whether the authority can perform DNSSEC validation
+    fn can_validate_dnssec(&self) -> bool;
 
     /// Perform a dynamic update of a zone
     async fn update(&self, update: &MessageRequest) -> UpdateResult<bool>;
@@ -54,7 +61,7 @@ pub trait AuthorityObject: Send + Sync {
         name: &LowerName,
         rtype: RecordType,
         lookup_options: LookupOptions,
-    ) -> Result<Box<dyn LookupObject>, LookupError>;
+    ) -> LookupControlFlow<Box<dyn LookupObject>>;
 
     /// Using the specified query, perform a lookup against this zone.
     ///
@@ -71,13 +78,10 @@ pub trait AuthorityObject: Send + Sync {
         &self,
         request_info: RequestInfo<'_>,
         lookup_options: LookupOptions,
-    ) -> Result<Box<dyn LookupObject>, LookupError>;
+    ) -> LookupControlFlow<Box<dyn LookupObject>>;
 
     /// Get the NS, NameServer, record for the zone
-    async fn ns(
-        &self,
-        lookup_options: LookupOptions,
-    ) -> Result<Box<dyn LookupObject>, LookupError> {
+    async fn ns(&self, lookup_options: LookupOptions) -> LookupControlFlow<Box<dyn LookupObject>> {
         self.lookup(self.origin(), RecordType::NS, lookup_options)
             .await
     }
@@ -93,13 +97,21 @@ pub trait AuthorityObject: Send + Sync {
         &self,
         name: &LowerName,
         lookup_options: LookupOptions,
-    ) -> Result<Box<dyn LookupObject>, LookupError>;
+    ) -> LookupControlFlow<Box<dyn LookupObject>>;
+
+    /// Return the NSEC3 records based on the given query information.
+    #[cfg(feature = "dnssec")]
+    async fn get_nsec3_records(
+        &self,
+        info: Nsec3QueryInfo<'_>,
+        lookup_options: LookupOptions,
+    ) -> LookupControlFlow<Box<dyn LookupObject>>;
 
     /// Returns the SOA of the authority.
     ///
     /// *Note*: This will only return the SOA, if this is fulfilling a request, a standard lookup
     ///  should be used, see `soa_secure()`, which will optionally return RRSIGs.
-    async fn soa(&self) -> Result<Box<dyn LookupObject>, LookupError> {
+    async fn soa(&self) -> LookupControlFlow<Box<dyn LookupObject>> {
         // SOA should be origin|SOA
         self.lookup(self.origin(), RecordType::SOA, LookupOptions::default())
             .await
@@ -109,10 +121,14 @@ pub trait AuthorityObject: Send + Sync {
     async fn soa_secure(
         &self,
         lookup_options: LookupOptions,
-    ) -> Result<Box<dyn LookupObject>, LookupError> {
+    ) -> LookupControlFlow<Box<dyn LookupObject>> {
         self.lookup(self.origin(), RecordType::SOA, lookup_options)
             .await
     }
+
+    #[cfg(feature = "dnssec")]
+    /// Returns the kind of non-existence proof used for this zone.
+    fn nx_proof_kind(&self) -> Option<&NxProofKind>;
 }
 
 #[async_trait::async_trait]
@@ -133,6 +149,10 @@ where
     /// Return true if AXFR is allowed
     fn is_axfr_allowed(&self) -> bool {
         Authority::is_axfr_allowed(self.as_ref())
+    }
+
+    fn can_validate_dnssec(&self) -> bool {
+        Authority::can_validate_dnssec(self.as_ref())
     }
 
     /// Perform a dynamic update of a zone
@@ -164,10 +184,10 @@ where
         name: &LowerName,
         rtype: RecordType,
         lookup_options: LookupOptions,
-    ) -> Result<Box<dyn LookupObject>, LookupError> {
+    ) -> LookupControlFlow<Box<dyn LookupObject>> {
         let this = self.as_ref();
         let lookup = Authority::lookup(this, name, rtype, lookup_options).await;
-        lookup.map(|l| Box::new(l) as Box<dyn LookupObject>)
+        lookup.map_dyn()
     }
 
     /// Using the specified query, perform a lookup against this zone.
@@ -185,11 +205,11 @@ where
         &self,
         request_info: RequestInfo<'_>,
         lookup_options: LookupOptions,
-    ) -> Result<Box<dyn LookupObject>, LookupError> {
+    ) -> LookupControlFlow<Box<dyn LookupObject>> {
         let this = self.as_ref();
         debug!("performing {} on {}", request_info.query, this.origin());
         let lookup = Authority::search(this, request_info, lookup_options).await;
-        lookup.map(|l| Box::new(l) as Box<dyn LookupObject>)
+        lookup.map_dyn()
     }
 
     /// Return the NSEC records based on the given name
@@ -203,10 +223,36 @@ where
         &self,
         name: &LowerName,
         lookup_options: LookupOptions,
-    ) -> Result<Box<dyn LookupObject>, LookupError> {
+    ) -> LookupControlFlow<Box<dyn LookupObject>> {
         let lookup = Authority::get_nsec_records(self.as_ref(), name, lookup_options).await;
-        lookup.map(|l| Box::new(l) as Box<dyn LookupObject>)
+        lookup.map_dyn()
     }
+
+    #[cfg(feature = "dnssec")]
+    async fn get_nsec3_records(
+        &self,
+        info: Nsec3QueryInfo<'_>,
+        lookup_options: LookupOptions,
+    ) -> LookupControlFlow<Box<dyn LookupObject>> {
+        let lookup = Authority::get_nsec3_records(self.as_ref(), info, lookup_options).await;
+        lookup.map_dyn()
+    }
+
+    #[cfg(feature = "dnssec")]
+    fn nx_proof_kind(&self) -> Option<&NxProofKind> {
+        Authority::nx_proof_kind(self.as_ref())
+    }
+}
+
+/// DNSSEC status of an answer
+#[derive(Clone, Copy, Debug)]
+pub enum DnssecSummary {
+    /// All records have been DNSSEC validated
+    Secure,
+    /// At least one record is in the Bogus state
+    Bogus,
+    /// Insecure / Indeterminate (e.g. "Island of security")
+    Insecure,
 }
 
 /// An Object Safe Lookup for Authority
@@ -221,6 +267,11 @@ pub trait LookupObject: Send {
     ///
     /// it is acceptable for this to return None after the first call.
     fn take_additionals(&mut self) -> Option<Box<dyn LookupObject>>;
+
+    /// Whether the records have been DNSSEC validated or not
+    fn dnssec_summary(&self) -> DnssecSummary {
+        DnssecSummary::Insecure
+    }
 }
 
 /// A lookup that returns no records

@@ -17,25 +17,20 @@ use futures_util::{
     ready,
     stream::{Stream, StreamExt},
 };
+use hickory_proto::{
+    error::{ProtoError, ProtoErrorKind},
+    op::{update_message, Edns, Message, MessageType, OpCode, Query},
+    rr::{rdata::SOA, DNSClass, Name, Record, RecordSet, RecordType},
+    xfer::{
+        BufDnsStreamHandle, DnsClientStream, DnsExchange, DnsExchangeBackground, DnsExchangeSend,
+        DnsHandle, DnsMultiplexer, DnsRequest, DnsRequestOptions, DnsRequestSender, DnsResponse,
+    },
+    TokioTime,
+};
 use rand;
 use tracing::debug;
 
-use crate::{
-    client::Signer,
-    error::*,
-    op::{Message, MessageType, OpCode, Query},
-    proto::{
-        error::{ProtoError, ProtoErrorKind},
-        op::{update_message, Edns},
-        xfer::{
-            BufDnsStreamHandle, DnsClientStream, DnsExchange, DnsExchangeBackground,
-            DnsExchangeSend, DnsHandle, DnsMultiplexer, DnsRequest, DnsRequestOptions,
-            DnsRequestSender, DnsResponse,
-        },
-        TokioTime,
-    },
-    rr::{rdata::SOA, DNSClass, Name, RData, Record, RecordSet, RecordType},
-};
+use crate::{client::Signer, error::*};
 
 /// A DNS Client implemented over futures-rs.
 ///
@@ -709,7 +704,7 @@ impl<R> ClientStreamXfrState<R> {
     fn process(&mut self, answers: &[Record]) -> Result<(), ClientError> {
         use ClientStreamXfrState::*;
         fn get_serial(r: &Record) -> Option<u32> {
-            r.data().and_then(RData::as_soa).map(SOA::serial)
+            r.data().as_soa().map(SOA::serial)
         }
 
         if answers.is_empty() {
@@ -862,8 +857,11 @@ where
 mod tests {
     use super::*;
 
-    use crate::rr::rdata::{A, SOA};
     use futures_util::stream::iter;
+    use hickory_proto::rr::{
+        rdata::{A, SOA},
+        RData,
+    };
     use ClientStreamXfrState::*;
 
     fn soa_record(serial: u32) -> Record {
@@ -1082,9 +1080,11 @@ mod tests {
     #[tokio::test]
     async fn async_client() {
         use crate::client::{AsyncClient, ClientHandle};
-        use crate::proto::iocompat::AsyncIoTokioAsStd;
-        use crate::rr::{DNSClass, Name, RData, RecordType};
-        use crate::tcp::TcpClientStream;
+        use hickory_proto::{
+            iocompat::AsyncIoTokioAsStd,
+            rr::{DNSClass, Name, RData, RecordType},
+            tcp::TcpClientStream,
+        };
         use std::str::FromStr;
         use tokio::net::TcpStream as TokioTcpStream;
 
@@ -1116,16 +1116,16 @@ mod tests {
         let (message_returned, buffer) = query.await.unwrap().into_parts();
 
         // validate it's what we expected
-        if let Some(RData::A(addr)) = message_returned.answers()[0].data() {
-            assert_eq!(*addr, A::new(93, 184, 216, 34));
+        if let RData::A(addr) = message_returned.answers()[0].data() {
+            assert_eq!(*addr, A::new(93, 184, 215, 14));
         }
 
         let message_parsed = Message::from_vec(&buffer)
             .expect("buffer was parsed already by AsyncClient so we should be able to do it again");
 
         // validate it's what we expected
-        if let Some(RData::A(addr)) = message_parsed.answers()[0].data() {
-            assert_eq!(*addr, A::new(93, 184, 216, 34));
+        if let RData::A(addr) = message_parsed.answers()[0].data() {
+            assert_eq!(*addr, A::new(93, 184, 215, 14));
         }
     }
 }

@@ -112,17 +112,17 @@ impl TSigner {
     ///
     /// # Arguments
     /// * `previous_hash` - Hash of the last message received before this one, or of the query for
-    /// the first message
+    ///   the first message
     /// * `message` - byte buffer containing current message
     /// * `first_message` - is this the first response message
     ///
     /// # Returns
     /// Return Ok(_) on valid signature. Inner tuple contain the following values, in order:
     /// * a byte buffer containing the hash of this message. Need to be passed back when
-    /// authenticating next message
+    ///   authenticating next message
     /// * a Range of time that is acceptable
     /// * the time the signature was emitted. It must be greater or equal to the time of previous
-    /// messages, if any
+    ///   messages, if any
     pub fn verify_message_byte(
         &self,
         previous_hash: Option<&[u8]>,
@@ -130,7 +130,7 @@ impl TSigner {
         first_message: bool,
     ) -> ProtoResult<(Vec<u8>, Range<u64>, u64)> {
         let (tbv, record) = signed_bitmessage_to_buf(previous_hash, message, first_message)?;
-        let tsig = if let Some(RData::DNSSEC(DNSSECRData::TSIG(tsig))) = record.data() {
+        let tsig = if let RData::DNSSEC(DNSSECRData::TSIG(tsig)) = record.data() {
             tsig
         } else {
             unreachable!("tsig::signed_message_to_buff always returns a TSIG record")
@@ -327,61 +327,6 @@ mod tests {
         let origin: Name = Name::parse("example.net.", None).unwrap();
         query.set_name(origin);
         question.add_query(query);
-
-        assert!(signer
-            .verify_message_byte(None, &question.to_bytes().unwrap(), true)
-            .is_err());
-    }
-
-    #[test]
-    #[cfg(feature = "hmac_truncation")] // not currently supported for security reasons
-    fn test_sign_and_verify_message_tsig_truncation() {
-        let (mut question, signer) = get_message_and_signer();
-
-        {
-            let mut signature = question.take_signature().remove(0);
-            if let RData::DNSSEC(DNSSECRData::TSIG(ref mut tsig)) = signature.rdata_mut() {
-                let mut mac = tsig.mac().to_vec();
-                mac.push(0); // make one longer than sha512
-                core::mem::swap(tsig, &mut tsig.clone().set_mac(mac));
-            } else {
-                panic!("should have been a TSIG");
-            }
-            question.add_tsig(signature);
-        }
-
-        // we are longer, there is a problem
-        assert!(signer
-            .verify_message_byte(None, &question.to_bytes().unwrap(), true)
-            .is_err());
-        {
-            let mut signature = question.take_signature().remove(0);
-            if let RData::DNSSEC(DNSSECRData::TSIG(ref mut tsig)) = signature.rdata_mut() {
-                // sha512 is 512 bits, half of that is 256 bits, /8 for byte
-                let mac = tsig.mac()[..256 / 8].to_vec();
-                core::mem::swap(tsig, &mut tsig.clone().set_mac(mac));
-            } else {
-                panic!("should have been a TSIG");
-            }
-            question.add_tsig(signature);
-        }
-
-        // we are at half, it's allowed
-        assert!(signer
-            .verify_message_byte(None, &question.to_bytes().unwrap(), true)
-            .is_ok());
-
-        {
-            let mut signature = question.take_signature().remove(0);
-            if let RData::DNSSEC(DNSSECRData::TSIG(ref mut tsig)) = signature.rdata_mut() {
-                // less than half of sha512
-                let mac = tsig.mac()[..240 / 8].to_vec();
-                core::mem::swap(tsig, &mut tsig.clone().set_mac(mac));
-            } else {
-                panic!("should have been a TSIG");
-            }
-            question.add_tsig(signature);
-        }
 
         assert!(signer
             .verify_message_byte(None, &question.to_bytes().unwrap(), true)

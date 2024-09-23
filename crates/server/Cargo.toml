@@ -30,78 +30,69 @@ keywords.workspace = true
 categories.workspace = true
 license.workspace = true
 
-[badges]
-#github-actions = { repository = "bluejekyll/hickory", branch = "main", workflow = "test" }
-codecov = { repository = "hickory-dns/hickory-dns", branch = "main", service = "github" }
-maintenance = { status = "actively-developed" }
-
 [features]
 backtrace = ["hickory-proto/backtrace"]
 dnssec-openssl = [
     "dnssec",
     "openssl",
     "hickory-proto/dnssec-openssl",
-    "hickory-resolver/dnssec-openssl",
+    "hickory-resolver?/dnssec-openssl",
 ]
 dnssec-ring = [
     "dnssec",
     "hickory-proto/dnssec-ring",
-    "hickory-resolver/dnssec-ring",
+    "hickory-resolver?/dnssec-ring",
 ]
-dnssec = []
+dnssec = [
+    "hickory-recursor?/dnssec",
+    "serde/rc",
+]
 # Recursive Resolution is Experimental!
 recursor = ["hickory-recursor"]
 resolver = ["hickory-resolver"]
 sqlite = ["rusqlite"]
-toml = ["dep:basic-toml"]
+toml = ["dep:toml"]
 
-# TODO: Need to figure out how to be consistent with ring/openssl usage...
-# dns-over-https-openssl = ["dns-over-openssl", "hickory-client/dns-over-https-openssl", "dns-over-https"]
 dns-over-https-rustls = [
-    "dns-over-https",
     "hickory-proto/dns-over-https-rustls",
-    "hickory-resolver/dns-over-https-rustls",
+    "hickory-resolver?/dns-over-https-rustls",
     "dns-over-rustls",
-    "tokio-rustls",
+    "dep:h2",
+    "dep:http",
+    "dep:tokio-rustls",
 ]
-dns-over-https = ["h2", "http", "hickory-proto/dns-over-https"]
 
-# TODO: migrate all tls and tls-openssl features to dns-over-tls, et al
 dns-over-openssl = [
     "dns-over-tls",
     "dnssec-openssl",
     "hickory-proto/dns-over-openssl",
-    "tokio-openssl",
-    "hickory-resolver/dns-over-openssl",
+    "dep:tokio-openssl",
+    "hickory-resolver?/dns-over-openssl",
 ]
 dns-over-rustls = [
     "dns-over-tls",
     "dnssec-ring",
-    "rustls",
+    "dep:rustls",
     "hickory-proto/dns-over-rustls",
-    "hickory-resolver/dns-over-rustls",
-    "tokio-rustls",
+    "hickory-resolver?/dns-over-rustls",
+    "dep:tokio-rustls",
 ]
 dns-over-tls = []
 dns-over-quic = [
     "dns-over-rustls",
     "hickory-proto/dns-over-quic",
-    "hickory-resolver/dns-over-quic",
+    "hickory-resolver?/dns-over-quic",
 ]
 dns-over-h3 = [
     "dns-over-rustls",
-    "h3",
-    "h3-quinn",
+    "dep:h3",
+    "dep:h3-quinn",
     "hickory-proto/dns-over-h3",
-    "hickory-resolver/dns-over-h3",
+    "hickory-resolver?/dns-over-h3",
 ]
 
-# This is a deprecated feature...
-tls-openssl = ["dns-over-openssl"]
-tls = ["dns-over-openssl"]
-
-# WARNING: there is a bug in the mutual tls auth code at the moment see issue #100
-# mtls = ["hickory-client/mtls"]
+webpki-roots = ["hickory-resolver?/webpki-roots"]
+native-certs = ["hickory-resolver?/native-certs"]
 
 testing = []
 
@@ -111,18 +102,19 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait.workspace = true
-basic-toml = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
 bytes.workspace = true
 cfg-if.workspace = true
+data-encoding.workspace = true
 enum-as-inner.workspace = true
-futures-util = { workspace = true, default-features = false, features = [
-    "std",
-] }
+futures-util = { workspace = true, default-features = false, features = ["std"] }
 h2 = { workspace = true, features = ["stream"], optional = true }
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
+ipnet = { workspace = true, features = ["serde"] }
 openssl = { workspace = true, features = ["v102", "v110"], optional = true }
+prefix-trie.workspace = true
 rusqlite = { workspace = true, features = ["bundled", "time"], optional = true }
 rustls = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
@@ -133,32 +125,21 @@ tokio = { workspace = true, features = ["macros", "net", "sync"] }
 tokio-openssl = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
 tokio-util.workspace = true
-hickory-proto = { workspace = true, features = [
-    "text-parsing",
-    "tokio-runtime",
-] }
-hickory-recursor = { workspace = true, features = [
-    "serde-config",
-], optional = true }
-hickory-resolver = { workspace = true, features = [
-    "serde-config",
-    "system-config",
-    "tokio-runtime",
-], optional = true }
+hickory-proto = { workspace = true, features = ["serde", "text-parsing", "tokio-runtime"] }
+hickory-recursor = { workspace = true, features = ["serde"], optional = true }
+hickory-resolver = { workspace = true, features = ["serde", "system-config", "tokio-runtime"], optional = true }
 
 [dev-dependencies]
-futures-executor = { workspace = true, default-features = false, features = [
-    "std",
-] }
+futures-executor = { workspace = true, default-features = false, features = ["std"] }
+test-support.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
-tracing-subscriber = { workspace = true, features = [
-    "std",
-    "fmt",
-    "env-filter",
-] }
+tracing-subscriber.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
 default-target = "x86_64-unknown-linux-gnu"
 targets = ["x86_64-apple-darwin", "x86_64-pc-windows-msvc"]
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true

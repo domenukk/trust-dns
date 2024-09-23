@@ -6,10 +6,10 @@
 // copied, modified, or distributed except according to those terms.
 
 //! OPENPGPKEY records for OpenPGP public keys
+use alloc::vec::Vec;
 use core::fmt;
 
-use alloc::vec::Vec;
-#[cfg(feature = "serde-config")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -25,7 +25,7 @@ use crate::{
 /// value consisting of a Transferable Public Key formatted as specified
 /// in [RFC4880].
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct OPENPGPKEY {
     public_key: Vec<u8>,

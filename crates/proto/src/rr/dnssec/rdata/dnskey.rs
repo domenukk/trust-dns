@@ -7,10 +7,10 @@
 
 //! public key record data for signing zone records
 
-use std::fmt;
+use core::fmt;
 
 use alloc::vec::Vec;
-#[cfg(feature = "serde-config")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -73,7 +73,7 @@ use super::DNSSECRData;
 ///    backward compatibility with early versions of the KEY record.
 ///
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct DNSKEY {
     zone_key: bool,
@@ -151,6 +151,12 @@ impl DNSKEY {
     /// ```
     pub fn secure_entry_point(&self) -> bool {
         self.secure_entry_point
+    }
+
+    /// A KSK has a `flags` value of `257`
+    pub fn is_key_signing_key(&self) -> bool {
+        // a flags value of 257
+        self.secure_entry_point() && self.zone_key() && !self.revoke()
     }
 
     /// [RFC 5011, Trust Anchor Update, September 2007](https://tools.ietf.org/html/rfc5011#section-3)
@@ -236,8 +242,11 @@ impl DNSKEY {
     ///
     /// * `name` - the label of of the DNSKEY record.
     /// * `digest_type` - the `DigestType` with which to create the message digest.
-    #[cfg(any(feature = "openssl", feature = "ring"))]
-    #[cfg_attr(docsrs, doc(cfg(any(feature = "openssl", feature = "ring"))))]
+    #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring")))
+    )]
     pub fn to_digest(&self, name: &Name, digest_type: DigestType) -> ProtoResult<Digest> {
         let mut buf: Vec<u8> = Vec::new();
         {
@@ -256,8 +265,11 @@ impl DNSKEY {
     }
 
     /// This will always return an error unless the Ring or OpenSSL features are enabled
-    #[cfg(not(any(feature = "openssl", feature = "ring")))]
-    #[cfg_attr(docsrs, doc(cfg(not(any(feature = "openssl", feature = "ring")))))]
+    #[cfg(not(any(feature = "dnssec-openssl", feature = "dnssec-ring")))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(not(any(feature = "dnssec-openssl", feature = "dnssec-ring"))))
+    )]
     pub fn to_digest(&self, _: &Name, _: DigestType) -> ProtoResult<Digest> {
         Err("Ring or OpenSSL must be enabled for this feature".into())
     }
@@ -488,7 +500,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(any(feature = "openssl", feature = "ring"))]
+    #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
     fn test() {
         use std::println;
 

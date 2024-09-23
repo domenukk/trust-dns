@@ -15,7 +15,7 @@ Please read the [Architecture](ARCHITECTURE.md) to understand the general design
 
 Before submitting a PR it would be good to discuss the change in an issue so as to avoid wasted work, also feel free to reach out on the Discord channel listed on the front page of the GitHub project. Please, consider keep PRs focused on one issue at a time. While issues are not required for a PR to be accepted they are encouraged, especially for anything that would change behavior, change an API, or be a medium to large change.
 
-When making submitting PRs please keep refactoring commits separate from functional change commits. Breaking up the PR into multiple commits such that a reviewer can follow the change improves the review experience. This is not necessary, but can make it easier for a reviewer to follow the changes and will result in PRs getting merged more quickly.
+When submitting PRs please keep refactoring commits separate from functional change commits. Breaking up the PR into multiple commits such that a reviewer can follow the change improves the review experience. This is not necessary, but can make it easier for a reviewer to follow the changes and will result in PRs getting merged more quickly.
 
 ### Test policy
 
@@ -54,17 +54,13 @@ Releases are somewhat automated. The github action, `publish`, watches for any t
 
 After approximately 45 minutes it should be published. This may fail.
 
-**TBD**: add instructions about using Makefile.toml to skip already published crates
+**TBD**: add instructions to skip already published crates
 
 ## Updating Security Related Tests
 
 ### All TLS tests are failing
 
 TBD: add notes on updating certificates in test directories
-
-### Windows OpenSSL tests are failing
-
-When the OpenSSL related tests fail on Windows, this is often due to a new minor version of the OpenSSL implementation there being increased. There is no good way to get this updated automatically right now. The library for Windows is maintained by Shining Light Productions, available here: [slproweb.com/products/Win32OpenSSL](https://slproweb.com/products/Win32OpenSSL.html). On that page the currently published version can be seen, e.g. `Win64 OpenSSL v1.1.1j Light`. The version downloaded is specified in [Makefile.toml](Makefile.toml), look for `OPENSSL_VERSION = "1_1_1j"` and replace with the correct string.
 
 ## FAQ
 

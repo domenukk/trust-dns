@@ -6,11 +6,11 @@
 // copied, modified, or distributed except according to those terms.
 
 //! text records for storing arbitrary data
+use alloc::{boxed::Box, string::String, vec::Vec};
 use core::fmt;
 use core::slice::Iter;
 
-use alloc::{boxed::Box, string::String, vec::Vec};
-#[cfg(feature = "serde-config")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -32,7 +32,7 @@ use crate::{
 /// TXT RRs are used to hold descriptive text.  The semantics of the text
 /// depends on the domain where it is found.
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct TXT {
     txt_data: Box<[Box<[u8]>]>,

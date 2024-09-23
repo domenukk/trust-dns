@@ -19,7 +19,7 @@ use proto::xfer::{DnsRequestOptions, RetryDnsHandle};
 use tracing::{debug, trace};
 
 use crate::caching_client::CachingClient;
-use crate::config::{ResolverConfig, ResolverOpts};
+use crate::config::{ResolveHosts, ResolverConfig, ResolverOpts};
 use crate::dns_lru::{self, DnsLru};
 use crate::error::*;
 use crate::lookup::{self, Lookup, LookupEither, LookupFuture};
@@ -223,10 +223,9 @@ impl<P: ConnectionProvider> AsyncResolver<P> {
             either = LookupEither::Retry(client);
         }
 
-        let hosts = if options.use_hosts_file {
-            Some(Arc::new(Hosts::new()))
-        } else {
-            None
+        let hosts = match options.use_hosts_file {
+            ResolveHosts::Always | ResolveHosts::Auto => Some(Arc::new(Hosts::new())),
+            ResolveHosts::Never => None,
         };
 
         trace!("handle passed back");
@@ -364,12 +363,18 @@ impl<P: ConnectionProvider> AsyncResolver<P> {
         options: DnsRequestOptions,
     ) -> Result<L, ResolveError>
     where
-        L: From<Lookup> + Send + 'static,
+        L: From<Lookup> + Send + Sync + 'static,
     {
         let names = self.build_names(name);
-        LookupFuture::lookup(names, record_type, options, self.client_cache.clone())
-            .await
-            .map(L::from)
+        LookupFuture::lookup_with_hosts(
+            names,
+            record_type,
+            options,
+            self.client_cache.clone(),
+            self.hosts.clone(),
+        )
+        .await
+        .map(L::from)
     }
 
     /// Performs a dual-stack DNS lookup for the IP for the given hostname.
@@ -426,7 +431,7 @@ impl<P: ConnectionProvider> AsyncResolver<P> {
             self.client_cache.clone(),
             self.request_options(),
             hosts,
-            finally_ip_addr.and_then(Record::into_data),
+            finally_ip_addr.map(Record::into_data),
         )
         .await
     }
@@ -450,6 +455,7 @@ impl<P: ConnectionProvider> AsyncResolver<P> {
     lookup_fn!(srv_lookup, lookup::SrvLookup, RecordType::SRV);
     lookup_fn!(tlsa_lookup, lookup::TlsaLookup, RecordType::TLSA);
     lookup_fn!(txt_lookup, lookup::TxtLookup, RecordType::TXT);
+    lookup_fn!(cert_lookup, lookup::CertLookup, RecordType::CERT);
 }
 
 impl<P: ConnectionProvider> fmt::Debug for AsyncResolver<P> {
@@ -487,12 +493,12 @@ pub mod testing {
         assert_eq!(response.iter().count(), 1);
         for address in response.iter() {
             if address.is_ipv4() {
-                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)));
+                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 215, 14)));
             } else {
                 assert_eq!(
                     address,
                     IpAddr::V6(Ipv6Addr::new(
-                        0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c8, 0x1946,
+                        0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c,
                     ))
                 );
             }
@@ -514,12 +520,12 @@ pub mod testing {
         );
 
         let response = exec
-            .block_on(resolver.lookup_ip("2606:2800:220:1:248:1893:25c8:1946"))
+            .block_on(resolver.lookup_ip("2606:2800:21f:cb07:6820:80da:af6b:8b2c"))
             .expect("failed to run lookup");
 
         assert_eq!(
             Some(IpAddr::V6(Ipv6Addr::new(
-                0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c8, 0x1946,
+                0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c,
             ))),
             response.iter().next()
         );
@@ -552,12 +558,12 @@ pub mod testing {
             );
 
             let response = exec
-                .block_on(resolver.lookup_ip("2606:2800:220:1:248:1893:25c8:1946"))
+                .block_on(resolver.lookup_ip("2606:2800:21f:cb07:6820:80da:af6b:8b2c"))
                 .expect("failed to run lookup");
 
             assert_eq!(
                 Some(IpAddr::V6(Ipv6Addr::new(
-                    0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c8, 0x1946,
+                    0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c,
                 ))),
                 response.iter().next()
             );
@@ -582,8 +588,6 @@ pub mod testing {
         mut exec: E,
         handle: R,
     ) {
-        //env_logger::try_init().ok();
-
         let resolver = AsyncResolver::new(
             ResolverConfig::default(),
             ResolverOpts {
@@ -602,15 +606,19 @@ pub mod testing {
         //assert_eq!(response.iter().count(), 1);
         for address in response.iter() {
             if address.is_ipv4() {
-                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)));
+                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 215, 14)));
             } else {
                 assert_eq!(
                     address,
                     IpAddr::V6(Ipv6Addr::new(
-                        0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c8, 0x1946,
+                        0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c,
                     ))
                 );
             }
+        }
+
+        for record in response.as_lookup().record_iter() {
+            assert!(record.proof().is_secure())
         }
     }
 
@@ -622,8 +630,6 @@ pub mod testing {
         mut exec: E,
         handle: R,
     ) {
-        use crate::error::*;
-        use proto::rr::RecordType;
         let resolver = AsyncResolver::new(
             ResolverConfig::default(),
             ResolverOpts {
@@ -637,24 +643,9 @@ pub mod testing {
         // needs to be a domain that exists, but is not signed (eventually this will be)
         let response = exec.block_on(resolver.lookup_ip("hickory-dns.org."));
 
-        assert!(response.is_err());
-        let error = response.unwrap_err();
-
-        use proto::error::{ProtoError, ProtoErrorKind};
-
-        let error_str = format!("{error}");
-        let name = Name::from_str("hickory-dns.org.").unwrap();
-        let expected_str = format!(
-            "{}",
-            ResolveError::from(ProtoError::from(ProtoErrorKind::RrsigsNotPresent {
-                name,
-                record_type: RecordType::A
-            }))
-        );
-        assert_eq!(error_str, expected_str);
-        if let ResolveErrorKind::Proto(_) = *error.kind() {
-        } else {
-            panic!("wrong error")
+        let lookup_ip = response.unwrap();
+        for record in lookup_ip.as_lookup().record_iter() {
+            assert!(record.proof().is_bogus())
         }
     }
 
@@ -675,12 +666,12 @@ pub mod testing {
         assert_eq!(response.iter().count(), 2);
         for address in response.iter() {
             if address.is_ipv4() {
-                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)));
+                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 215, 14)));
             } else {
                 assert_eq!(
                     address,
                     IpAddr::V6(Ipv6Addr::new(
-                        0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c8, 0x1946,
+                        0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c,
                     ))
                 );
             }
@@ -737,7 +728,7 @@ pub mod testing {
         assert_eq!(response.iter().count(), 1);
         for address in response.iter() {
             if address.is_ipv4() {
-                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)));
+                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 215, 14)));
             } else {
                 panic!("should only be looking up IPv4");
             }
@@ -773,7 +764,7 @@ pub mod testing {
         assert_eq!(response.iter().count(), 1);
         for address in response.iter() {
             if address.is_ipv4() {
-                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)));
+                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 215, 14)));
             } else {
                 panic!("should only be looking up IPv4");
             }
@@ -812,7 +803,7 @@ pub mod testing {
         assert_eq!(response.iter().count(), 1);
         for address in response.iter() {
             if address.is_ipv4() {
-                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)));
+                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 215, 14)));
             } else {
                 panic!("should only be looking up IPv4");
             }
@@ -824,8 +815,6 @@ pub mod testing {
         mut exec: E,
         handle: R,
     ) {
-        //env_logger::try_init().ok();
-
         // domain is good now, should be combined with the name to form www.example.com
         let domain = Name::from_str("example.com.").unwrap();
         let search = vec![
@@ -852,7 +841,7 @@ pub mod testing {
         assert_eq!(response.iter().count(), 1);
         for address in response.iter() {
             if address.is_ipv4() {
-                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)));
+                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 215, 14)));
             } else {
                 panic!("should only be looking up IPv4");
             }
@@ -891,7 +880,7 @@ pub mod testing {
         assert_eq!(response.iter().count(), 1);
         for address in response.iter() {
             if address.is_ipv4() {
-                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)));
+                assert_eq!(address, IpAddr::V4(Ipv4Addr::new(93, 184, 215, 14)));
             } else {
                 panic!("should only be looking up IPv4");
             }
@@ -1052,11 +1041,13 @@ pub mod testing {
         );
     }
 }
+
 #[cfg(test)]
 #[cfg(feature = "tokio-runtime")]
 #[allow(clippy::extra_unused_type_parameters)]
 mod tests {
     use proto::xfer::DnsRequest;
+    use test_support::subscribe;
     use tokio::runtime::Runtime;
 
     use crate::config::{ResolverConfig, ResolverOpts};
@@ -1135,6 +1126,8 @@ mod tests {
     #[cfg(feature = "dnssec")]
     fn test_sec_lookup() {
         use super::testing::sec_lookup_test;
+        use test_support::subscribe;
+        subscribe();
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
         let handle = TokioConnectionProvider::default();
         sec_lookup_test::<Runtime, TokioConnectionProvider>(io_loop, handle);
@@ -1199,6 +1192,7 @@ mod tests {
     #[test]
     fn test_domain_search() {
         use super::testing::domain_search_test;
+        subscribe();
         let io_loop = Runtime::new().expect("failed to create tokio runtime io_loop");
         let handle = TokioConnectionProvider::default();
         domain_search_test::<Runtime, TokioConnectionProvider>(io_loop, handle);

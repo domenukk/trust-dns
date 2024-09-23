@@ -8,7 +8,7 @@
 //! All authority related types
 
 #[cfg(feature = "dnssec")]
-use std::borrow::Borrow;
+use std::collections::{hash_map::Entry, HashMap};
 #[cfg(all(feature = "dnssec", feature = "testing"))]
 use std::ops::Deref;
 use std::{
@@ -18,7 +18,6 @@ use std::{
 };
 
 use cfg_if::cfg_if;
-use futures_util::future::{self, TryFutureExt};
 #[cfg(feature = "dnssec")]
 use time::OffsetDateTime;
 use tracing::{debug, error, warn};
@@ -27,24 +26,25 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(feature = "dnssec")]
 use crate::{
-    authority::DnssecAuthority,
-    proto::rr::dnssec::{
-        rdata::{key::KEY, DNSSECRData, NSEC},
-        {tbs, DnsSecResult, SigSigner, SupportedAlgorithms},
+    authority::{DnssecAuthority, Nsec3QueryInfo},
+    config::dnssec::NxProofKind,
+    proto::{
+        error::ProtoResult,
+        rr::dnssec::{
+            rdata::{key::KEY, DNSSECRData, NSEC, NSEC3, NSEC3PARAM},
+            DnsSecResult, Nsec3HashAlgorithm, SigSigner, SupportedAlgorithms,
+        },
     },
 };
 
 use crate::{
     authority::{
-        AnyRecords, AuthLookup, Authority, LookupError, LookupOptions, LookupRecords, LookupResult,
-        MessageRequest, UpdateResult, ZoneType,
+        AnyRecords, AuthLookup, Authority, LookupControlFlow, LookupError, LookupOptions,
+        LookupRecords, MessageRequest, UpdateResult, ZoneType,
     },
     proto::{
         op::ResponseCode,
-        rr::{
-            rdata::SOA,
-            {DNSClass, LowerName, Name, RData, Record, RecordSet, RecordType, RrKey},
-        },
+        rr::{rdata::SOA, DNSClass, LowerName, Name, RData, Record, RecordSet, RecordType, RrKey},
     },
     server::RequestInfo,
 };
@@ -59,6 +59,8 @@ pub struct InMemoryAuthority {
     zone_type: ZoneType,
     allow_axfr: bool,
     inner: RwLock<InnerInMemory>,
+    #[cfg(feature = "dnssec")]
+    nx_proof_kind: Option<NxProofKind>,
 }
 
 impl InMemoryAuthority {
@@ -73,6 +75,7 @@ impl InMemoryAuthority {
     /// * `allow_update` - If true, then this zone accepts dynamic updates.
     /// * `is_dnssec_enabled` - If true, then the zone will sign the zone with all registered keys,
     ///                         (see `add_zone_signing_key()`)
+    /// * `nx_proof_kind` - The kind of non-existence proof to be used by the server.
     ///
     /// # Return value
     ///
@@ -82,8 +85,15 @@ impl InMemoryAuthority {
         records: BTreeMap<RrKey, RecordSet>,
         zone_type: ZoneType,
         allow_axfr: bool,
+        #[cfg(feature = "dnssec")] nx_proof_kind: Option<NxProofKind>,
     ) -> Result<Self, String> {
-        let mut this = Self::empty(origin.clone(), zone_type, allow_axfr);
+        let mut this = Self::empty(
+            origin.clone(),
+            zone_type,
+            allow_axfr,
+            #[cfg(feature = "dnssec")]
+            nx_proof_kind,
+        );
         let inner = this.inner.get_mut();
 
         // SOA must be present
@@ -91,7 +101,7 @@ impl InMemoryAuthority {
             .iter()
             .find(|(key, _)| key.record_type == RecordType::SOA)
             .and_then(|(_, rrset)| rrset.records_without_rrsigs().next())
-            .and_then(Record::data)
+            .map(Record::data)
             .and_then(RData::as_soa)
             .map(SOA::serial)
             .ok_or_else(|| format!("SOA record must be present: {origin}"))?;
@@ -120,13 +130,21 @@ impl InMemoryAuthority {
     /// # Warning
     ///
     /// This is an invalid zone, SOA must be added
-    pub fn empty(origin: Name, zone_type: ZoneType, allow_axfr: bool) -> Self {
+    pub fn empty(
+        origin: Name,
+        zone_type: ZoneType,
+        allow_axfr: bool,
+        #[cfg(feature = "dnssec")] nx_proof_kind: Option<NxProofKind>,
+    ) -> Self {
         Self {
             origin: LowerName::new(&origin),
             class: DNSClass::IN,
             zone_type,
             allow_axfr,
             inner: RwLock::new(InnerInMemory::default()),
+
+            #[cfg(feature = "dnssec")]
+            nx_proof_kind,
         }
     }
 
@@ -298,7 +316,9 @@ impl InMemoryAuthority {
             ref mut inner,
             ..
         } = self;
-        inner.get_mut().secure_zone_mut(origin, self.class)
+        inner
+            .get_mut()
+            .secure_zone_mut(origin, self.class, self.nx_proof_kind.as_ref())
     }
 
     /// (Re)generates the nsec records, increments the serial number and signs the zone
@@ -345,7 +365,7 @@ impl InnerInMemory {
         self.records
             .get(&rr_key)
             .and_then(|rrset| rrset.records_without_rrsigs().next())
-            .and_then(Record::data)
+            .map(Record::data)
             .and_then(RData::as_soa)
     }
 
@@ -386,8 +406,8 @@ impl InnerInMemory {
         lookup_options: LookupOptions,
     ) -> Option<Arc<RecordSet>> {
         // this range covers all the records for any of the RecordTypes at a given label.
-        let start_range_key = RrKey::new(name.clone(), RecordType::Unknown(u16::min_value()));
-        let end_range_key = RrKey::new(name.clone(), RecordType::Unknown(u16::max_value()));
+        let start_range_key = RrKey::new(name.clone(), RecordType::Unknown(u16::MIN));
+        let end_range_key = RrKey::new(name.clone(), RecordType::Unknown(u16::MAX));
 
         fn aname_covers_type(key_type: RecordType, query_type: RecordType) -> bool {
             (query_type == RecordType::A || query_type == RecordType::AAAA)
@@ -437,7 +457,7 @@ impl InnerInMemory {
                 cfg_if! {
                     if #[cfg(feature = "dnssec")] {
                         let (records_tmp, rrsigs_tmp) = rrset
-                            .records(lookup_options.is_dnssec(), lookup_options.supported_algorithms())
+                            .records(lookup_options.dnssec_ok(), lookup_options.supported_algorithms())
                             .partition(|r| r.record_type() != RecordType::RRSIG);
                         records = records_tmp;
                         _rrsigs = rrsigs_tmp;
@@ -449,9 +469,7 @@ impl InnerInMemory {
                 };
 
                 for record in records {
-                    if let Some(rdata) = record.data() {
-                        new_answer.add_rdata(rdata.clone());
-                    }
+                    new_answer.add_rdata(record.data().clone());
                 }
 
                 #[cfg(feature = "dnssec")]
@@ -548,7 +566,7 @@ impl InnerInMemory {
             return 0;
         };
 
-        let serial = if let Some(RData::SOA(ref mut soa_rdata)) = record.data_mut() {
+        let serial = if let RData::SOA(ref mut soa_rdata) = record.data_mut() {
             soa_rdata.increment_serial();
             soa_rdata.serial()
         } else {
@@ -610,9 +628,8 @@ impl InnerInMemory {
         }
 
         // check that CNAME and ANAME is either not already present, or no other records are if it's a CNAME
-        let start_range_key =
-            RrKey::new(record.name().into(), RecordType::Unknown(u16::min_value()));
-        let end_range_key = RrKey::new(record.name().into(), RecordType::Unknown(u16::max_value()));
+        let start_range_key = RrKey::new(record.name().into(), RecordType::Unknown(u16::MIN));
+        let end_range_key = RrKey::new(record.name().into(), RecordType::Unknown(u16::MAX));
 
         let multiple_records_at_label_disallowed = self
             .records
@@ -650,10 +667,23 @@ impl InnerInMemory {
     /// (Re)generates the nsec records, increments the serial number and signs the zone
     #[cfg(feature = "dnssec")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dnssec")))]
-    fn secure_zone_mut(&mut self, origin: &LowerName, dns_class: DNSClass) -> DnsSecResult<()> {
+    fn secure_zone_mut(
+        &mut self,
+        origin: &LowerName,
+        dns_class: DNSClass,
+        nx_proof_kind: Option<&NxProofKind>,
+    ) -> DnsSecResult<()> {
         // TODO: only call nsec_zone after adds/deletes
         // needs to be called before incrementing the soa serial, to make sure IXFR works properly
-        self.nsec_zone(origin, dns_class);
+        match nx_proof_kind {
+            Some(NxProofKind::Nsec) => self.nsec_zone(origin, dns_class),
+            Some(NxProofKind::Nsec3 {
+                algorithm,
+                salt,
+                iterations,
+            }) => self.nsec3_zone(origin, dns_class, *algorithm, salt, *iterations)?,
+            None => (),
+        }
 
         // need to resign any records at the current serial number and bump the number.
         // first bump the serial number on the SOA, so that it is resigned with the new serial.
@@ -693,19 +723,18 @@ impl InnerInMemory {
             let mut nsec_info: Option<(&Name, Vec<RecordType>)> = None;
             for key in self.records.keys() {
                 match nsec_info {
-                    None => nsec_info = Some((key.name.borrow(), vec![key.record_type])),
+                    None => nsec_info = Some((&key.name, vec![key.record_type])),
                     Some((name, ref mut vec)) if LowerName::new(name) == key.name => {
                         vec.push(key.record_type)
                     }
                     Some((name, vec)) => {
                         // names aren't equal, create the NSEC record
-                        let mut record = Record::with(name.clone(), RecordType::NSEC, ttl);
                         let rdata = NSEC::new_cover_self(key.name.clone().into(), vec);
-                        record.set_data(Some(RData::DNSSEC(DNSSECRData::NSEC(rdata))));
-                        records.push(record);
+                        let record = Record::from_rdata(name.clone(), ttl, rdata);
+                        records.push(record.into_record_of_rdata());
 
                         // new record...
-                        nsec_info = Some((key.name.borrow(), vec![key.record_type]))
+                        nsec_info = Some((&key.name, vec![key.record_type]))
                     }
                 }
             }
@@ -713,10 +742,9 @@ impl InnerInMemory {
             // the last record
             if let Some((name, vec)) = nsec_info {
                 // names aren't equal, create the NSEC record
-                let mut record = Record::with(name.clone(), RecordType::NSEC, ttl);
                 let rdata = NSEC::new_cover_self(origin.clone().into(), vec);
-                record.set_data(Some(RData::DNSSEC(DNSSECRData::NSEC(rdata))));
-                records.push(record);
+                let record = Record::from_rdata(name.clone(), ttl, rdata);
+                records.push(record.into_record_of_rdata());
             }
         }
 
@@ -726,7 +754,122 @@ impl InnerInMemory {
             debug_assert!(upserted);
         }
     }
+    #[cfg(feature = "dnssec")]
+    fn nsec3_zone(
+        &mut self,
+        origin: &LowerName,
+        dns_class: DNSClass,
+        hash_alg: Nsec3HashAlgorithm,
+        salt: &[u8],
+        iterations: u16,
+    ) -> DnsSecResult<()> {
+        // FIXME: Implement collision detection.
+        // only create nsec records for secure zones
+        if self.secure_keys.is_empty() {
+            return Ok(());
+        }
+        debug!("generating nsec3 records: {origin}");
 
+        // first remove all existing nsec records
+        let delete_keys = self
+            .records
+            .keys()
+            .filter(|k| k.record_type == RecordType::NSEC3)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for key in delete_keys {
+            self.records.remove(&key);
+        }
+
+        // now go through and generate the nsec3 records
+        let ttl = self.minimum_ttl(origin);
+        let serial = self.serial(origin);
+        // FIXME: Should be configurable
+        let opt_out = false;
+
+        // Store the record types of each domain name so we can generate NSEC3 records for each
+        // domain name.
+        let mut record_types = HashMap::new();
+
+        for key in self.records.keys() {
+            // Store the type of the current record under its domain name
+            match record_types.entry(key.name.clone()) {
+                Entry::Occupied(mut entry) => {
+                    let (rtypes, exists): &mut (HashSet<RecordType>, bool) = entry.get_mut();
+                    rtypes.insert(key.record_type);
+                    *exists = true;
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert((HashSet::from([key.record_type]), true));
+                }
+            }
+
+            // For every domain name between the current name and the origin, add it to
+            // `record_types` without any record types. This covers all the empty non-terminals
+            // that must have an NSEC3 record as well.
+            let mut name = key.name.base_name();
+
+            for _ in origin.num_labels()..name.num_labels() {
+                if let Entry::Vacant(entry) = record_types.entry(name.clone()) {
+                    entry.insert((HashSet::new(), false));
+                }
+                name = name.base_name();
+            }
+        }
+
+        // Compute the hash of all the names.
+        let mut record_types = record_types
+            .into_iter()
+            .map(|(name, (type_bit_maps, exists))| {
+                let hashed_name = hash_alg.hash(salt, &name, iterations)?;
+                Ok((hashed_name, (type_bit_maps, exists)))
+            })
+            .collect::<ProtoResult<Vec<_>>>()?;
+        // Sort by hash.
+        record_types.sort_by(|(a, _), (b, _)| a.as_ref().cmp(b.as_ref()));
+
+        let mut records = vec![];
+
+        // Generate an NSEC3 record for every name
+        for (i, (hashed_name, (type_bit_maps, exists))) in record_types.iter().enumerate() {
+            // Get the next hashed name following the hash order.
+            let next_index = (i + 1) % record_types.len();
+            let next_hashed_name = record_types[next_index].0.as_ref().to_vec();
+
+            let rdata = NSEC3::new(
+                hash_alg,
+                opt_out,
+                iterations,
+                salt.to_vec(),
+                next_hashed_name,
+                type_bit_maps
+                    .iter()
+                    .copied()
+                    .chain(exists.then_some(RecordType::RRSIG))
+                    .collect(),
+            );
+
+            let name =
+                origin.prepend_label(data_encoding::BASE32_DNSSEC.encode(hashed_name.as_ref()))?;
+
+            let record = Record::from_rdata(name, ttl, rdata);
+            records.push(record.into_record_of_rdata());
+        }
+
+        // Include the NSEC3PARAM record.
+        let rdata = NSEC3PARAM::new(hash_alg, opt_out, iterations, salt.to_vec());
+        let record = Record::from_rdata(origin.into(), ttl, rdata);
+        records.push(record.into_record_of_rdata());
+
+        // insert all the NSEC3 records.
+        for record in records {
+            let upserted = self.upsert(record, serial, dns_class);
+            debug_assert!(upserted);
+        }
+
+        Ok(())
+    }
     /// Signs an RecordSet, and stores the RRSIGs in the RecordSet
     ///
     /// This will sign the RecordSet with all the registered keys in the zone
@@ -744,13 +887,15 @@ impl InnerInMemory {
         zone_ttl: u32,
         zone_class: DNSClass,
     ) -> DnsSecResult<()> {
+        use hickory_proto::rr::dnssec::TBS;
+
         use crate::proto::rr::dnssec::rdata::RRSIG;
 
         let inception = OffsetDateTime::now_utc();
 
         rr_set.clear_rrsigs();
 
-        let rrsig_temp = Record::with(rr_set.name().clone(), RecordType::RRSIG, zone_ttl);
+        let rrsig_temp = Record::update0(rr_set.name().clone(), zone_ttl, RecordType::RRSIG);
 
         for signer in secure_keys {
             debug!(
@@ -761,25 +906,7 @@ impl InnerInMemory {
             );
 
             let expiration = inception + signer.sig_duration();
-
-            let tbs = tbs::rrset_tbs(
-                rr_set.name(),
-                zone_class,
-                rr_set.name().num_labels(),
-                rr_set.record_type(),
-                signer.algorithm(),
-                rr_set.ttl(),
-                expiration.unix_timestamp() as u32,
-                inception.unix_timestamp() as u32,
-                signer.calculate_key_tag()?,
-                signer.signer_name(),
-                // TODO: this is a nasty clone... the issue is that the vec
-                //  from records is of Vec<&R>, but we really want &[R]
-                &rr_set
-                    .records_without_rrsigs()
-                    .cloned()
-                    .collect::<Vec<Record>>(),
-            );
+            let tbs = TBS::from_rrset(rr_set, zone_class, inception, expiration, signer);
 
             // TODO, maybe chain these with some ETL operations instead?
             let tbs = match tbs {
@@ -800,7 +927,7 @@ impl InnerInMemory {
             };
 
             let mut rrsig = rrsig_temp.clone();
-            rrsig.set_data(Some(RData::DNSSEC(DNSSECRData::RRSIG(RRSIG::new(
+            rrsig.set_data(RData::DNSSEC(DNSSECRData::RRSIG(RRSIG::new(
                 // type_covered: RecordType,
                 rr_set.record_type(),
                 // algorithm: Algorithm,
@@ -819,7 +946,7 @@ impl InnerInMemory {
                 signer.signer_name().clone(),
                 // sig: Vec<u8>
                 signature,
-            )))));
+            ))));
 
             rr_set.insert_rrsig(rrsig);
         }
@@ -853,6 +980,62 @@ impl InnerInMemory {
 
         Ok(())
     }
+
+    /// Find a record that covers the given name. This is, an NSEC3 record such that the hashed owner
+    /// name of the given name falls between the record's owner name and its next hashed owner
+    /// name.
+    #[cfg(feature = "dnssec")]
+    pub(crate) fn find_cover(
+        &self,
+        name: &LowerName,
+        zone: &Name,
+        info: &Nsec3QueryInfo<'_>,
+    ) -> ProtoResult<Option<Arc<RecordSet>>> {
+        let owner_name = info.get_hashed_owner_name(name, zone)?;
+        let records = self
+            .records
+            .values()
+            .filter(|rr_set| rr_set.record_type() == RecordType::NSEC3);
+
+        // Find the record with the largest owner name such that its owner name is before the
+        // hashed QNAME. If this record exist, it already covers QNAME. Otherwise, the QNAME
+        // preceeds all the existing NSEC3 records' owner names, meaning that it is covered by
+        // the NSEC3 record with the largest owner name.
+        Ok(records
+            .clone()
+            .filter(|rr_set| rr_set.record_type() == RecordType::NSEC3)
+            .filter(|rr_set| rr_set.name() < &*owner_name)
+            .max_by_key(|rr_set| rr_set.name())
+            .or_else(|| records.max_by_key(|rr_set| rr_set.name()))
+            .cloned())
+    }
+
+    /// Return the next closer name and the record that matches the closest encloser of a given name.
+    #[cfg(feature = "dnssec")]
+    pub(crate) fn get_closest_encloser_proof(
+        &self,
+        name: &LowerName,
+        zone: &Name,
+        info: &Nsec3QueryInfo<'_>,
+    ) -> ProtoResult<Option<(LowerName, Arc<RecordSet>)>> {
+        let mut next_closer_name = name.clone();
+        let mut closest_encloser = next_closer_name.base_name();
+
+        while !closest_encloser.is_root() {
+            let rr_key = RrKey::new(
+                info.get_hashed_owner_name(&closest_encloser, zone)?,
+                RecordType::NSEC3,
+            );
+            if let Some(rrs) = self.records.get(&rr_key) {
+                return Ok(Some((next_closer_name, rrs.clone())));
+            }
+
+            next_closer_name = next_closer_name.base_name();
+            closest_encloser = closest_encloser.base_name();
+        }
+
+        Ok(None)
+    }
 }
 
 /// Gets the next search name, and returns the RecordType that it originated from
@@ -869,14 +1052,14 @@ fn maybe_next_name(
         | (t @ RecordType::ANAME, RecordType::ANAME) => record_set
             .records_without_rrsigs()
             .next()
-            .and_then(Record::data)
+            .map(Record::data)
             .and_then(RData::as_aname)
             .map(|aname| LowerName::from(&aname.0))
             .map(|name| (name, t)),
         (t @ RecordType::NS, RecordType::NS) => record_set
             .records_without_rrsigs()
             .next()
-            .and_then(Record::data)
+            .map(Record::data)
             .and_then(RData::as_ns)
             .map(|ns| LowerName::from(&ns.0))
             .map(|name| (name, t)),
@@ -884,14 +1067,14 @@ fn maybe_next_name(
         (t @ RecordType::CNAME, _) => record_set
             .records_without_rrsigs()
             .next()
-            .and_then(Record::data)
+            .map(Record::data)
             .and_then(RData::as_cname)
             .map(|cname| LowerName::from(&cname.0))
             .map(|name| (name, t)),
         (t @ RecordType::MX, RecordType::MX) => record_set
             .records_without_rrsigs()
             .next()
-            .and_then(Record::data)
+            .map(Record::data)
             .and_then(RData::as_mx)
             .map(|mx| mx.exchange().clone())
             .map(LowerName::from)
@@ -899,7 +1082,7 @@ fn maybe_next_name(
         (t @ RecordType::SRV, RecordType::SRV) => record_set
             .records_without_rrsigs()
             .next()
-            .and_then(Record::data)
+            .map(Record::data)
             .and_then(RData::as_srv)
             .map(|srv| srv.target().clone())
             .map(LowerName::from)
@@ -1008,11 +1191,11 @@ impl Authority for InMemoryAuthority {
         name: &LowerName,
         query_type: RecordType,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         let inner = self.inner.read().await;
 
         // Collect the records from each rr_set
-        let (result, additionals): (LookupResult<LookupRecords>, Option<LookupRecords>) =
+        let (result, additionals): (LookupControlFlow<LookupRecords, _>, Option<LookupRecords>) =
             match query_type {
                 RecordType::AXFR | RecordType::ANY => {
                     let result = AnyRecords::new(
@@ -1021,7 +1204,10 @@ impl Authority for InMemoryAuthority {
                         query_type,
                         name.clone(),
                     );
-                    (Ok(LookupRecords::AnyRecords(result)), None)
+                    (
+                        LookupControlFlow::Continue(Ok(LookupRecords::AnyRecords(result))),
+                        None,
+                    )
                 }
                 _ => {
                     // perform the lookup
@@ -1062,8 +1248,7 @@ impl Authority for InMemoryAuthority {
                                 // in the case of ANAME the final record should be the A or AAAA record
                                 let (rdatas, a_aaaa_ttl) = {
                                     let last_record = additionals.last();
-                                    let a_aaaa_ttl =
-                                        last_record.map_or(u32::max_value(), |r| r.ttl());
+                                    let a_aaaa_ttl = last_record.map_or(u32::MAX, |r| r.ttl());
 
                                     // grap the rdatas
                                     let rdatas: Option<Vec<RData>> = last_record
@@ -1075,10 +1260,7 @@ impl Authority for InMemoryAuthority {
                                             _ => None,
                                         })
                                         .map(|records| {
-                                            records
-                                                .filter_map(Record::data)
-                                                .cloned()
-                                                .collect::<Vec<_>>()
+                                            records.map(Record::data).cloned().collect::<Vec<_>>()
                                         });
 
                                     (rdatas, a_aaaa_ttl)
@@ -1101,7 +1283,7 @@ impl Authority for InMemoryAuthority {
                                     use tracing::warn;
 
                                     // ANAME's are constructed on demand, so need to be signed before return
-                                    if lookup_options.is_dnssec() {
+                                    if lookup_options.dnssec_ok() {
                                         InnerInMemory::sign_rrset(
                                             &mut new_answer,
                                             inner.secure_keys(),
@@ -1127,10 +1309,15 @@ impl Authority for InMemoryAuthority {
                         };
 
                     // map the answer to a result
-                    let answer = answer
-                        .map_or(Err(LookupError::from(ResponseCode::NXDomain)), |rr_set| {
-                            Ok(LookupRecords::new(lookup_options, rr_set))
-                        });
+                    let answer = answer.map_or(
+                        LookupControlFlow::Continue(Err(LookupError::from(ResponseCode::NXDomain))),
+                        |rr_set| {
+                            LookupControlFlow::Continue(Ok(LookupRecords::new(
+                                lookup_options,
+                                rr_set,
+                            )))
+                        },
+                    );
 
                     let additionals = additionals.map(|a| LookupRecords::many(lookup_options, a));
 
@@ -1143,24 +1330,25 @@ impl Authority for InMemoryAuthority {
         //   always return empty sets. This is only important in the negative case, where other DNS authorities
         //   generally return NoError and no results when other types exist at the same name. bah.
         // TODO: can we get rid of this?
+        use LookupControlFlow::*;
         let result = match result {
-            Err(LookupError::ResponseCode(ResponseCode::NXDomain)) => {
+            Continue(Err(LookupError::ResponseCode(ResponseCode::NXDomain))) => {
                 if inner
                     .records
                     .keys()
                     .any(|key| key.name() == name || name.zone_of(key.name()))
                 {
-                    return Err(LookupError::NameExists);
+                    return Continue(Err(LookupError::NameExists));
                 } else {
                     let code = if self.origin().zone_of(name) {
                         ResponseCode::NXDomain
                     } else {
                         ResponseCode::Refused
                     };
-                    return Err(LookupError::from(code));
+                    return Continue(Err(LookupError::from(code)));
                 }
             }
-            Err(e) => return Err(e),
+            Continue(Err(e)) => return Continue(Err(e)),
             o => o,
         };
 
@@ -1171,7 +1359,7 @@ impl Authority for InMemoryAuthority {
         &self,
         request_info: RequestInfo<'_>,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         debug!("searching InMemoryAuthority for: {}", request_info.query);
 
         let lookup_name = request_info.query.name();
@@ -1182,14 +1370,18 @@ impl Authority for InMemoryAuthority {
         if RecordType::AXFR == record_type {
             // TODO: support more advanced AXFR options
             if !self.is_axfr_allowed() {
-                return Err(LookupError::from(ResponseCode::Refused));
+                return LookupControlFlow::Continue(Err(LookupError::from(ResponseCode::Refused)));
             }
 
             #[allow(deprecated)]
             match self.zone_type() {
                 ZoneType::Primary | ZoneType::Secondary | ZoneType::Master | ZoneType::Slave => (),
                 // TODO: Forward?
-                _ => return Err(LookupError::from(ResponseCode::NXDomain)),
+                _ => {
+                    return LookupControlFlow::Continue(Err(LookupError::from(
+                        ResponseCode::NXDomain,
+                    )))
+                }
             }
         }
 
@@ -1201,22 +1393,31 @@ impl Authority for InMemoryAuthority {
             }
             RecordType::AXFR => {
                 // TODO: shouldn't these SOA's be secure? at least the first, perhaps not the last?
-                let lookup = future::try_join3(
-                    // TODO: maybe switch this to be an soa_inner type call?
-                    self.soa_secure(lookup_options),
-                    self.soa(),
-                    self.lookup(lookup_name, record_type, lookup_options),
-                )
-                .map_ok(|(start_soa, end_soa, records)| match start_soa {
-                    l @ AuthLookup::Empty => l,
-                    start_soa => AuthLookup::AXFR {
-                        start_soa: start_soa.unwrap_records(),
-                        records: records.unwrap_records(),
-                        end_soa: end_soa.unwrap_records(),
-                    },
-                });
+                use LookupControlFlow::Continue;
+                let start_soa = if let Continue(Ok(res)) = self.soa_secure(lookup_options).await {
+                    res.unwrap_records()
+                } else {
+                    LookupRecords::Empty
+                };
+                let end_soa = if let Continue(Ok(res)) = self.soa().await {
+                    res.unwrap_records()
+                } else {
+                    LookupRecords::Empty
+                };
 
-                lookup.await
+                let records = if let Continue(Ok(res)) =
+                    self.lookup(lookup_name, record_type, lookup_options).await
+                {
+                    res.unwrap_records()
+                } else {
+                    LookupRecords::Empty
+                };
+
+                LookupControlFlow::Continue(Ok(AuthLookup::AXFR {
+                    start_soa,
+                    end_soa,
+                    records,
+                }))
             }
             // A standard Lookup path
             _ => self.lookup(lookup_name, record_type, lookup_options).await,
@@ -1235,7 +1436,7 @@ impl Authority for InMemoryAuthority {
         &self,
         name: &LowerName,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         let inner = self.inner.read().await;
         fn is_nsec_rrset(rr_set: &RecordSet) -> bool {
             rr_set.record_type() == RecordType::NSEC
@@ -1249,7 +1450,7 @@ impl Authority for InMemoryAuthority {
             .map(|rr_set| LookupRecords::new(lookup_options, rr_set.clone()));
 
         if let Some(no_data) = no_data {
-            return Ok(no_data.into());
+            return LookupControlFlow::Continue(Ok(no_data.into()));
         }
 
         let get_closest_nsec = |name: &LowerName| -> Option<Arc<RecordSet>> {
@@ -1266,7 +1467,7 @@ impl Authority for InMemoryAuthority {
                     rr_set
                         .records(false, SupportedAlgorithms::default())
                         .next()
-                        .and_then(Record::data)
+                        .map(Record::data)
                         .and_then(RData::as_dnssec)
                         .and_then(DNSSECRData::as_nsec)
                         .map_or(false, |r| {
@@ -1310,7 +1511,7 @@ impl Authority for InMemoryAuthority {
             (None, None) => vec![],
         };
 
-        Ok(LookupRecords::many(lookup_options, proofs).into())
+        LookupControlFlow::Continue(Ok(LookupRecords::many(lookup_options, proofs).into()))
     }
 
     #[cfg(not(feature = "dnssec"))]
@@ -1318,8 +1519,112 @@ impl Authority for InMemoryAuthority {
         &self,
         _name: &LowerName,
         _lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
-        Ok(AuthLookup::default())
+    ) -> LookupControlFlow<Self::Lookup> {
+        LookupControlFlow::Continue(Ok(AuthLookup::default()))
+    }
+
+    #[cfg(feature = "dnssec")]
+    async fn get_nsec3_records(
+        &self,
+        info: Nsec3QueryInfo<'_>,
+        lookup_options: LookupOptions,
+    ) -> LookupControlFlow<Self::Lookup> {
+        let zone = self.origin();
+
+        let inner = self.inner.read().await;
+
+        let Nsec3QueryInfo {
+            qname,
+            qtype,
+            has_wildcard_match,
+            ..
+        } = info;
+
+        let compute_proof = || -> Result<Vec<Arc<RecordSet>>, LookupError> {
+            let rr_key = RrKey::new(info.get_hashed_owner_name(qname, zone)?, RecordType::NSEC3);
+            let qname_match = inner.records.get(&rr_key);
+
+            if has_wildcard_match {
+                // - Wildcard answer response.
+                let closest_encloser_name = inner
+                    .get_closest_encloser_proof(qname, zone, &info)?
+                    .map(|(name, _)| name);
+
+                let closest_encloser_cover = match closest_encloser_name {
+                    Some(closest_encloser_name) => {
+                        inner.find_cover(&closest_encloser_name, zone, &info)?
+                    }
+                    None => None,
+                };
+
+                Ok(closest_encloser_cover.into_iter().collect())
+            } else {
+                match qname_match {
+                    Some(rr_set) => {
+                        // - No data response if the QTYPE is not DS.
+                        // - No data response if the QTYPE is DS and there is an NSEC3 record matching QNAME.
+                        Ok(vec![rr_set.clone()])
+                    }
+                    None => {
+                        // - Name error response.
+                        // - No data response if QTYPE is DS and there is not an NSEC3 record matching QNAME.
+                        // - Wildcard no data response.
+                        let (next_closer_name, closest_encloser_match) = inner
+                            .get_closest_encloser_proof(qname, zone, &info)?
+                            .unzip();
+
+                        let next_closer_name_cover = match &next_closer_name {
+                            Some(name) => inner.find_cover(name, zone, &info)?,
+                            None => None,
+                        };
+
+                        let wildcard_record = match next_closer_name {
+                            Some(next_closer_name) => {
+                                let wildcard_match = {
+                                    let wildcard = qname.clone().into_wildcard();
+                                    inner.records.keys().any(|rr_key| rr_key.name == wildcard)
+                                };
+
+                                if wildcard_match {
+                                    let wildcard_at_closest_encloser =
+                                        next_closer_name.into_wildcard();
+                                    let rr_key = RrKey::new(
+                                        info.get_hashed_owner_name(
+                                            &wildcard_at_closest_encloser,
+                                            zone,
+                                        )?,
+                                        RecordType::NSEC3,
+                                    );
+                                    inner.records.get(&rr_key).cloned()
+                                } else if qtype != RecordType::DS {
+                                    let wildcard_at_closest_encloser =
+                                        next_closer_name.into_wildcard();
+                                    inner.find_cover(&wildcard_at_closest_encloser, zone, &info)?
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        };
+
+                        Ok(closest_encloser_match
+                            .into_iter()
+                            .chain(next_closer_name_cover)
+                            .chain(wildcard_record)
+                            .collect())
+                    }
+                }
+            }
+        };
+
+        LookupControlFlow::Continue(
+            compute_proof().map(|proof| LookupRecords::many(lookup_options, proof).into()),
+        )
+    }
+
+    #[cfg(feature = "dnssec")]
+    fn nx_proof_kind(&self) -> Option<&NxProofKind> {
+        self.nx_proof_kind.as_ref()
     }
 }
 
@@ -1349,6 +1654,6 @@ impl DnssecAuthority for InMemoryAuthority {
     async fn secure_zone(&self) -> DnsSecResult<()> {
         let mut inner = self.inner.write().await;
 
-        inner.secure_zone_mut(self.origin(), self.class)
+        inner.secure_zone_mut(self.origin(), self.class, self.nx_proof_kind.as_ref())
     }
 }

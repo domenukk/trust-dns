@@ -9,9 +9,12 @@ use std::{io, path::Path, time::Instant};
 
 use tracing::{debug, info};
 
+#[cfg(feature = "dnssec")]
+use crate::{authority::Nsec3QueryInfo, config::dnssec::NxProofKind, proto::rr::dnssec::Proof};
 use crate::{
     authority::{
-        Authority, LookupError, LookupObject, LookupOptions, MessageRequest, UpdateResult, ZoneType,
+        Authority, DnssecSummary, LookupControlFlow, LookupError, LookupObject, LookupOptions,
+        MessageRequest, UpdateResult, ZoneType,
     },
     proto::{
         op::{Query, ResponseCode},
@@ -73,8 +76,20 @@ impl RecursiveAuthority {
             });
         }
 
-        let recursor =
-            Recursor::new(roots).map_err(|e| format!("failed to initialize recursor: {e}"))?;
+        let mut builder = Recursor::builder();
+        if let Some(ns_cache_size) = config.ns_cache_size {
+            builder.ns_cache_size(ns_cache_size);
+        }
+        if let Some(record_cache_size) = config.record_cache_size {
+            builder.record_cache_size(record_cache_size);
+        }
+
+        let recursor = builder
+            .dnssec_policy(config.dnssec_policy.load()?)
+            .do_not_query(&config.do_not_query)
+            .recursion_limit(config.recursion_limit)
+            .build(roots)
+            .map_err(|e| format!("failed to initialize recursor: {e}"))?;
 
         Ok(Self {
             origin: origin.into(),
@@ -97,6 +112,10 @@ impl Authority for RecursiveAuthority {
         false
     }
 
+    fn can_validate_dnssec(&self) -> bool {
+        self.recursor.is_validating()
+    }
+
     async fn update(&self, _update: &MessageRequest) -> UpdateResult<bool> {
         Err(ResponseCode::NotImp)
     }
@@ -115,25 +134,30 @@ impl Authority for RecursiveAuthority {
         &self,
         name: &LowerName,
         rtype: RecordType,
-        _lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+        lookup_options: LookupOptions,
+    ) -> LookupControlFlow<Self::Lookup> {
         debug!("recursive lookup: {} {}", name, rtype);
 
         let query = Query::query(name.into(), rtype);
         let now = Instant::now();
 
-        self.recursor
-            .resolve(query, now)
-            .await
-            .map(RecursiveLookup)
-            .map_err(Into::into)
+        let result = self
+            .recursor
+            .resolve(query, now, lookup_options.dnssec_ok())
+            .await;
+
+        use LookupControlFlow::*;
+        match result {
+            Ok(lookup) => Continue(Ok(RecursiveLookup(lookup))),
+            Err(error) => Continue(Err(LookupError::from(error))),
+        }
     }
 
     async fn search(
         &self,
         request_info: RequestInfo<'_>,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         self.lookup(
             request_info.query.name(),
             request_info.query.query_type(),
@@ -146,11 +170,28 @@ impl Authority for RecursiveAuthority {
         &self,
         _name: &LowerName,
         _lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
-        Err(LookupError::from(io::Error::new(
+    ) -> LookupControlFlow<Self::Lookup> {
+        LookupControlFlow::Continue(Err(LookupError::from(io::Error::new(
             io::ErrorKind::Other,
             "Getting NSEC records is unimplemented for the recursor",
-        )))
+        ))))
+    }
+
+    #[cfg(feature = "dnssec")]
+    async fn get_nsec3_records(
+        &self,
+        _info: Nsec3QueryInfo<'_>,
+        _lookup_options: LookupOptions,
+    ) -> LookupControlFlow<Self::Lookup> {
+        LookupControlFlow::Continue(Err(LookupError::from(io::Error::new(
+            io::ErrorKind::Other,
+            "getting NSEC3 records is unimplemented for the recursor",
+        ))))
+    }
+
+    #[cfg(feature = "dnssec")]
+    fn nx_proof_kind(&self) -> Option<&NxProofKind> {
+        None
     }
 }
 
@@ -167,5 +208,24 @@ impl LookupObject for RecursiveLookup {
 
     fn take_additionals(&mut self) -> Option<Box<dyn LookupObject>> {
         None
+    }
+
+    fn dnssec_summary(&self) -> DnssecSummary {
+        let mut all_secure = None;
+        for record in self.0.records().iter() {
+            match record.proof() {
+                Proof::Secure => {
+                    all_secure.get_or_insert(true);
+                }
+                Proof::Bogus => return DnssecSummary::Bogus,
+                _ => all_secure = Some(false),
+            }
+        }
+
+        if all_secure.unwrap_or(false) {
+            DnssecSummary::Secure
+        } else {
+            DnssecSummary::Insecure
+        }
     }
 }

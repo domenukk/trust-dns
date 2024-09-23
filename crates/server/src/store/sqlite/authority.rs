@@ -16,8 +16,13 @@ use std::{
 use futures_util::lock::Mutex;
 use tracing::{error, info, warn};
 
+#[cfg(feature = "dnssec")]
+use LookupControlFlow::Continue;
+
 use crate::{
-    authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
+    authority::{
+        Authority, LookupControlFlow, LookupOptions, MessageRequest, UpdateResult, ZoneType,
+    },
     error::{PersistenceErrorKind, PersistenceResult},
     proto::{
         op::ResponseCode,
@@ -31,7 +36,8 @@ use crate::{
 };
 #[cfg(feature = "dnssec")]
 use crate::{
-    authority::{DnssecAuthority, UpdateRequest},
+    authority::{DnssecAuthority, Nsec3QueryInfo, UpdateRequest},
+    config::dnssec::NxProofKind,
     proto::rr::dnssec::{
         rdata::{key::KEY, DNSSECRData},
         DnsSecResult, SigSigner, Verifier,
@@ -80,6 +86,7 @@ impl SqliteAuthority {
         enable_dnssec: bool,
         root_dir: Option<&Path>,
         config: &SqliteConfig,
+        #[cfg(feature = "dnssec")] nx_proof_kind: Option<NxProofKind>,
     ) -> Result<Self, String> {
         use crate::store::file::{FileAuthority, FileConfig};
 
@@ -97,7 +104,13 @@ impl SqliteAuthority {
             let journal = Journal::from_file(&journal_path)
                 .map_err(|e| format!("error opening journal: {journal_path:?}: {e}"))?;
 
-            let in_memory = InMemoryAuthority::empty(zone_name.clone(), zone_type, allow_axfr);
+            let in_memory = InMemoryAuthority::empty(
+                zone_name.clone(),
+                zone_type,
+                allow_axfr,
+                #[cfg(feature = "dnssec")]
+                nx_proof_kind,
+            );
             let mut authority = Self::new(in_memory, config.allow_update, enable_dnssec);
 
             authority
@@ -123,6 +136,8 @@ impl SqliteAuthority {
                 allow_axfr,
                 root_dir,
                 &file_config,
+                #[cfg(feature = "dnssec")]
+                nx_proof_kind,
             )?
             .unwrap();
 
@@ -185,7 +200,10 @@ impl SqliteAuthority {
             info!("persisting zone to journal at SOA.serial: {}", serial);
 
             // TODO: THIS NEEDS TO BE IN A TRANSACTION!!!
-            journal.insert_record(serial, Record::new().set_rr_type(RecordType::AXFR))?;
+            journal.insert_record(
+                serial,
+                &Record::update0(Name::new(), 0, RecordType::AXFR).into_record_of_rdata(),
+            )?;
 
             for rr_set in self.in_memory.records().await.values() {
                 // TODO: should we preserve rr_sets or not?
@@ -323,7 +341,7 @@ impl SqliteAuthority {
 
             match require.dns_class() {
                 DNSClass::ANY => {
-                    if let None | Some(RData::NULL(..)) = require.data() {
+                    if let RData::Update0(_) | RData::NULL(..) = require.data() {
                         match require.record_type() {
                             // ANY      ANY      empty    Name is in use
                             RecordType::ANY => {
@@ -361,7 +379,7 @@ impl SqliteAuthority {
                     }
                 }
                 DNSClass::NONE => {
-                    if let None | Some(RData::NULL(..)) = require.data() {
+                    if let RData::Update0(_) | RData::NULL(..) = require.data() {
                         match require.record_type() {
                             // NONE     ANY      empty    Name is not in use
                             RecordType::ANY => {
@@ -450,7 +468,7 @@ impl SqliteAuthority {
     ///
     #[cfg(feature = "dnssec")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dnssec")))]
-    #[allow(clippy::blocks_in_if_conditions)]
+    #[allow(clippy::blocks_in_conditions)]
     pub async fn authorize(&self, update_message: &MessageRequest) -> UpdateResult<()> {
         use tracing::debug;
 
@@ -477,31 +495,25 @@ impl SqliteAuthority {
         debug!("authorizing with: {:?}", sig0s);
         if !sig0s.is_empty() {
             let mut found_key = false;
-            for sig in sig0s.iter().filter_map(|sig0| {
-                sig0.data()
-                    .and_then(RData::as_dnssec)
-                    .and_then(DNSSECRData::as_sig)
-            }) {
+            for sig in sig0s
+                .iter()
+                .filter_map(|sig0| sig0.data().as_dnssec().and_then(DNSSECRData::as_sig))
+            {
                 let name = LowerName::from(sig.signer_name());
                 let keys = self
                     .lookup(&name, RecordType::KEY, LookupOptions::default())
                     .await;
 
                 let keys = match keys {
-                    Ok(keys) => keys,
-                    Err(_) => continue, // error trying to lookup a key by that name, try the next one.
+                    Continue(Ok(keys)) => keys,
+                    _ => continue, // error trying to lookup a key by that name, try the next one.
                 };
 
                 debug!("found keys {:?}", keys);
                 // TODO: check key usage flags and restrictions
                 found_key = keys
                     .iter()
-                    .filter_map(|rr_set| {
-                        rr_set
-                            .data()
-                            .and_then(RData::as_dnssec)
-                            .and_then(DNSSECRData::as_key)
-                    })
+                    .filter_map(|rr_set| rr_set.data().as_dnssec().and_then(DNSSECRData::as_key))
                     .any(|key| {
                         key.verify_message(update_message, sig.sig(), sig)
                             .map(|_| {
@@ -598,7 +610,7 @@ impl SqliteAuthority {
                         if rr.ttl() != 0 {
                             return Err(ResponseCode::FormErr);
                         }
-                        if let None | Some(RData::NULL(..)) = rr.data() {
+                        if let RData::Update0(_) | RData::NULL(..) = rr.data() {
                             ()
                         } else {
                             return Err(ResponseCode::FormErr);
@@ -773,7 +785,7 @@ impl SqliteAuthority {
                             //   SOA or NS RRs will be deleted.
 
                             // ANY      rrset    empty    Delete an RRset
-                            if let None | Some(RData::NULL(..)) = rr.data() {
+                            if let RData::Update0(_) | RData::NULL(..) = rr.data() {
                                 let deleted = self.in_memory.records_mut().await.remove(&rr_key);
                                 info!("deleted rrset: {:?}", deleted);
                                 updated = updated || deleted.is_some();
@@ -957,7 +969,7 @@ impl Authority for SqliteAuthority {
         name: &LowerName,
         rtype: RecordType,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         self.in_memory.lookup(name, rtype, lookup_options).await
     }
 
@@ -965,7 +977,7 @@ impl Authority for SqliteAuthority {
         &self,
         request_info: RequestInfo<'_>,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         self.in_memory.search(request_info, lookup_options).await
     }
 
@@ -980,8 +992,22 @@ impl Authority for SqliteAuthority {
         &self,
         name: &LowerName,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         self.in_memory.get_nsec_records(name, lookup_options).await
+    }
+
+    #[cfg(feature = "dnssec")]
+    async fn get_nsec3_records(
+        &self,
+        info: Nsec3QueryInfo<'_>,
+        lookup_options: LookupOptions,
+    ) -> LookupControlFlow<Self::Lookup> {
+        self.in_memory.get_nsec3_records(info, lookup_options).await
+    }
+
+    #[cfg(feature = "dnssec")]
+    fn nx_proof_kind(&self) -> Option<&NxProofKind> {
+        self.in_memory.nx_proof_kind()
     }
 }
 

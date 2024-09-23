@@ -11,11 +11,13 @@
 
 use std::{fmt, io};
 
+use crate::proto::error::ForwardNSData;
 use enum_as_inner::EnumAsInner;
 use hickory_proto::error::ProtoErrorKind;
 use hickory_resolver::Name;
 use thiserror::Error;
 
+use crate::proto::rr::{rdata::SOA, Record};
 #[cfg(feature = "backtrace")]
 use crate::proto::{trace, ExtBacktrace};
 use crate::{proto::error::ProtoError, resolver::error::ResolveError};
@@ -32,9 +34,14 @@ pub enum ErrorKind {
     #[error("{0}")]
     Msg(String),
 
-    /// Upstream DNS authority returned a Referral to another nameserver
+    /// Upstream DNS authority returned a Referral to another nameserver in the form of an SOA record
     #[error("forward response: {0}")]
     Forward(Name),
+
+    /// Upstream DNS authority returned a referral to another set of nameservers in the form of
+    /// additional NS records.
+    #[error("forward NS Response")]
+    ForwardNS(Vec<ForwardNSData>),
 
     /// An error got returned from IO
     #[error("io error: {0}")]
@@ -68,6 +75,33 @@ impl Error {
     /// Get the kind of the error
     pub fn kind(&self) -> &ErrorKind {
         &self.kind
+    }
+
+    /// Returns true if the domain does not exist
+    pub fn is_nx_domain(&self) -> bool {
+        match &*self.kind {
+            ErrorKind::Proto(proto) => proto.is_nx_domain(),
+            ErrorKind::Resolve(err) => err.is_nx_domain(),
+            _ => false,
+        }
+    }
+
+    /// Returns true if no records were returned
+    pub fn is_no_records_found(&self) -> bool {
+        match &*self.kind {
+            ErrorKind::Proto(proto) => proto.is_no_records_found(),
+            ErrorKind::Resolve(err) => err.is_no_records_found(),
+            _ => false,
+        }
+    }
+
+    /// Returns the SOA record, if the error contains one
+    pub fn into_soa(self) -> Option<Box<Record<SOA>>> {
+        match *self.kind {
+            ErrorKind::Proto(proto) => proto.into_soa(),
+            ErrorKind::Resolve(err) => err.into_soa(),
+            _ => None,
+        }
     }
 }
 
@@ -132,10 +166,15 @@ impl From<Error> for String {
 
 impl From<ResolveError> for Error {
     fn from(e: ResolveError) -> Self {
-        if let Some(ProtoErrorKind::NoRecordsFound { soa, .. }) = e.proto().map(ProtoError::kind) {
-            match soa {
-                Some(soa) => ErrorKind::Forward(soa.name().clone()).into(),
-                _ => ErrorKind::Resolve(e).into(),
+        if let Some(ProtoErrorKind::NoRecordsFound { soa, ns, .. }) =
+            e.proto().map(ProtoError::kind)
+        {
+            if let Some(ns) = ns {
+                ErrorKind::ForwardNS(ns.clone()).into()
+            } else if let Some(soa) = soa {
+                ErrorKind::Forward(soa.name().clone()).into()
+            } else {
+                ErrorKind::Resolve(e).into()
             }
         } else {
             ErrorKind::Resolve(e).into()
@@ -150,6 +189,7 @@ impl Clone for ErrorKind {
             Message(msg) => Message(msg),
             Msg(ref msg) => Msg(msg.clone()),
             Forward(ref ns) => Forward(ns.clone()),
+            ForwardNS(ref ns) => ForwardNS(ns.clone()),
             Io(ref io) => Io(std::io::Error::from(io.kind())),
             Proto(ref proto) => Proto(proto.clone()),
             Resolve(ref resolve) => Resolve(resolve.clone()),
@@ -158,7 +198,7 @@ impl Clone for ErrorKind {
     }
 }
 
-/// A trait marking a type which implements From<Error> and
+/// A trait marking a type which implements `From<Error>` and
 /// std::error::Error types as well as Clone + Send
 pub trait FromError: From<Error> + std::error::Error + Clone {}
 

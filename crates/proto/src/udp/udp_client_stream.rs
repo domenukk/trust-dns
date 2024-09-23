@@ -332,7 +332,8 @@ async fn send_serial_message_inner<S: DnsUdpSocket + Send>(
         // compare expected src to received packet
         let request_target = msg.addr();
 
-        if src != request_target {
+        // Comparing the IP and Port directly as internal information about the link is stored with the IpAddr, see https://github.com/hickory-dns/hickory-dns/issues/2081
+        if src.ip() != request_target.ip() || src.port() != request_target.port() {
             warn!(
                 "ignoring response from {} because it does not match name_server: {}.",
                 src, request_target,
@@ -342,18 +343,10 @@ async fn send_serial_message_inner<S: DnsUdpSocket + Send>(
             continue;
         }
 
-        // TODO: match query strings from request and response?
-
         match Message::from_vec(&buffer) {
             Ok(message) => {
-                if msg_id == message.id() {
-                    debug!("received message id: {}", message.id());
-                    if let Some(mut verifier) = verifier {
-                        return verifier(&buffer);
-                    } else {
-                        return Ok(DnsResponse::new(message, buffer));
-                    }
-                } else {
+                // Validate the message id in the response matches the value chosen for the query.
+                if msg_id != message.id() {
                     // on wrong id, attempted poison?
                     warn!(
                         "expected message id: {} got: {}, dropped",
@@ -362,6 +355,50 @@ async fn send_serial_message_inner<S: DnsUdpSocket + Send>(
                     );
 
                     continue;
+                }
+
+                // Validate the returned query name.
+                //
+                // This currently checks that each response query name was present in the original query, but not that
+                // every original question is present.
+                //
+                // References:
+                //
+                // RFC 1035 7.3:
+                //
+                // The next step is to match the response to a current resolver request.
+                // The recommended strategy is to do a preliminary matching using the ID
+                // field in the domain header, and then to verify that the question section
+                // corresponds to the information currently desired.
+                //
+                // RFC 1035 7.4:
+                //
+                // In general, we expect a resolver to cache all data which it receives in
+                // responses since it may be useful in answering future client requests.
+                // However, there are several types of data which should not be cached:
+                //
+                // ...
+                //
+                //  - RR data in responses of dubious reliability.  When a resolver
+                // receives unsolicited responses or RR data other than that
+                // requested, it should discard it without caching it.
+                let request_message = Message::from_vec(msg.bytes())?;
+                let request_queries = request_message.queries();
+                let response_queries = message.queries();
+
+                if !response_queries
+                    .iter()
+                    .all(|elem| request_queries.contains(elem))
+                {
+                    warn!("detected forged question section: we expected '{request_queries:?}', but received '{response_queries:?}' from server {src}");
+                    continue;
+                }
+
+                debug!("received message id: {}", message.id());
+                if let Some(mut verifier) = verifier {
+                    return verifier(&buffer);
+                } else {
+                    return Ok(DnsResponse::new(message, buffer));
                 }
             }
             Err(e) => {
@@ -382,13 +419,13 @@ async fn send_serial_message_inner<S: DnsUdpSocket + Send>(
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
     use crate::tests::udp_client_stream_test;
-    #[cfg(not(target_os = "linux"))]
-    use std::net::Ipv6Addr;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use test_support::subscribe;
     use tokio::{net::UdpSocket as TokioUdpSocket, runtime::Runtime};
 
     #[test]
     fn test_udp_client_stream_ipv4() {
+        subscribe();
         let io_loop = Runtime::new().expect("failed to create tokio runtime");
         udp_client_stream_test::<TokioUdpSocket, Runtime>(
             IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -397,8 +434,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "linux"))] // ignored until Travis-CI fixes IPv6
     fn test_udp_client_stream_ipv6() {
+        subscribe();
         let io_loop = Runtime::new().expect("failed to create tokio runtime");
         udp_client_stream_test::<TokioUdpSocket, Runtime>(
             IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),

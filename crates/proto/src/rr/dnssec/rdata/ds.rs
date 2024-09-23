@@ -7,10 +7,10 @@
 
 //! pointer record from parent zone to child zone for dnskey proof
 
-use std::fmt::{self, Display, Formatter};
-
 use alloc::vec::Vec;
-#[cfg(feature = "serde-config")]
+use core::fmt::{self, Display, Formatter};
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -67,7 +67,7 @@ use super::DNSSECRData;
 ///    hexadecimal digits.  Whitespace is allowed within the hexadecimal
 ///    text.
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct DS {
     key_tag: u16,
@@ -178,16 +178,22 @@ impl DS {
     /// # Return
     ///
     /// true if and only if the DNSKEY is covered by the DS record.
-    #[cfg(any(feature = "openssl", feature = "ring"))]
-    #[cfg_attr(docsrs, doc(cfg(any(feature = "openssl", feature = "ring"))))]
+    #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring")))
+    )]
     pub fn covers(&self, name: &Name, key: &DNSKEY) -> ProtoResult<bool> {
         key.to_digest(name, self.digest_type())
-            .map(|hash| hash.as_ref() == self.digest())
+            .map(|hash| key.zone_key() && hash.as_ref() == self.digest())
     }
 
     /// This will always return an error unless the Ring or OpenSSL features are enabled
-    #[cfg(not(any(feature = "openssl", feature = "ring")))]
-    #[cfg_attr(docsrs, doc(cfg(not(any(feature = "openssl", feature = "ring")))))]
+    #[cfg(not(any(feature = "dnssec-openssl", feature = "dnssec-ring")))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(not(any(feature = "dnssec-openssl", feature = "dnssec-ring"))))
+    )]
     pub fn covers(&self, _: &Name, _: &DNSKEY) -> ProtoResult<bool> {
         Err("Ring or OpenSSL must be enabled for this feature".into())
     }
@@ -341,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(feature = "openssl", feature = "ring"))]
+    #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
     pub(crate) fn test_covers() {
         use alloc::borrow::ToOwned;
 
@@ -362,5 +368,27 @@ mod tests {
         );
 
         assert!(ds_rdata.covers(&name, &dnskey_rdata).unwrap());
+    }
+
+    #[test]
+    #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
+    pub(crate) fn test_covers_fails_with_non_zone_key() {
+        use crate::rr::dnssec::rdata::DNSKEY;
+
+        let name = Name::parse("www.example.com.", None).unwrap();
+
+        let dnskey_rdata = DNSKEY::new(false, true, false, Algorithm::RSASHA256, vec![1, 2, 3, 4]);
+        let ds_rdata = DS::new(
+            0,
+            Algorithm::RSASHA256,
+            DigestType::SHA256,
+            dnskey_rdata
+                .to_digest(&name, DigestType::SHA256)
+                .unwrap()
+                .as_ref()
+                .to_owned(),
+        );
+
+        assert!(!ds_rdata.covers(&name, &dnskey_rdata).unwrap());
     }
 }

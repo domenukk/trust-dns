@@ -35,7 +35,7 @@ use console::style;
 use hickory_proto::error::{ProtoError, ProtoErrorKind};
 use tokio::task::JoinSet;
 
-use hickory_client::rr::{Record, RecordData};
+use hickory_proto::rr::{Record, RecordData};
 use hickory_resolver::{
     config::{NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts},
     error::ResolveError,
@@ -147,18 +147,14 @@ struct Opts {
 }
 
 fn print_record<D: RecordData, R: Deref<Target = Record<D>>>(r: &R) {
-    print!(
-        "\t{name} {ttl} {class} {ty}",
+    println!(
+        "\t{name} {ttl} {class} {ty} {rdata}",
         name = style(r.name()).blue(),
         ttl = style(r.ttl()).blue(),
         class = style(r.dns_class()).blue(),
         ty = style(r.record_type()).blue(),
+        rdata = r.data(),
     );
-    if let Some(rdata) = r.data() {
-        println!(" {rdata}");
-    } else {
-        println!("NULL")
-    }
 }
 
 fn print_ok(lookup: Lookup) {

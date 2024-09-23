@@ -1,13 +1,17 @@
-[![minimum rustc: 1.67](https://img.shields.io/badge/minimum%20rustc-1.67-green?logo=rust)](https://www.whatrustisit.com)
+[![minimum rustc: 1.70](https://img.shields.io/badge/minimum%20rustc-1.70-green?logo=rust)](https://www.whatrustisit.com)
 [![Build Status](https://github.com/hickory-dns/hickory-dns/workflows/test/badge.svg?branch=main)](https://github.com/hickory-dns/hickory-dns/actions?query=workflow%3Atest)
 [![codecov](https://codecov.io/gh/hickory-dns/hickory-dns/branch/main/graph/badge.svg)](https://codecov.io/gh/hickory-dns/hickory-dns)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE-APACHE)
 [![Discord](https://img.shields.io/discord/590067103822774272.svg)](https://discord.gg/89nxE4n)
 
+<div class="oranda-hide">
+
 ![Hickory DNS](logo.png)
 
 # Hickory DNS
+
+</div>
 
 A Rust based DNS client, server, and Resolver, built to be safe and secure from the
 ground up.
@@ -93,7 +97,7 @@ Support of TLS on the Server is managed through a pkcs12 der file. The documenta
 
 ## DNS-over-TLS and DNS-over-HTTPS
 
-DoT and DoH are supported. This is accomplished through the use of one of `native-tls`, `openssl`, or `rustls` (only `rustls` is currently supported for DoH). The Resolver requires only requires valid DoT or DoH resolvers being registered in order to be used.
+DoT and DoH are supported. This is accomplished through the use of one of `native-tls`, `openssl`, or `rustls` (only `rustls` is currently supported for DoH). The Resolver requires valid DoT or DoH resolvers being registered in order to be used.
 
 To use with the `Client`, the `TlsClientConnection` or `HttpsClientConnection` should be used. Similarly, to use with the tokio `AsyncClient` the `TlsClientStream` or `HttpsClientStream` should be used. ClientAuth, mTLS, is currently not supported, there are some issues still being worked on. TLS is useful for Server authentication and connection privacy.
 
@@ -132,6 +136,7 @@ Zones will be automatically resigned on any record updates via dynamic DNS. To e
 
 ### Secure DNS operations
 
+- [RFC 2931](https://datatracker.ietf.org/doc/html/rfc2931): SIG(0)
 - [RFC 3007](https://tools.ietf.org/html/rfc3007): Secure Dynamic Update
 - [RFC 4034](https://tools.ietf.org/html/rfc4034): DNSSEC Resource Records
 - [RFC 4035](https://tools.ietf.org/html/rfc4035): Protocol Modifications for DNSSEC
@@ -177,7 +182,7 @@ presume that the hickory-dns repos have already been synced to the local system:
 
 ### Minimum Rust Version
 
-- The current minimum rustc version for this project is `1.67`
+- The current minimum rustc version for this project is `1.70`
 - OpenSSL development libraries (optional in client and resolver, min version 1.0.2)
 
 ### Mac OS X: using homebrew
@@ -199,7 +204,7 @@ presume that the hickory-dns repos have already been synced to the local system:
 
 ## Testing
 
-Hickory DNS uses `just` for build workflow management. While running `cargo test` at the project root will work, this is not exhaustive. Install `just` with `cargo install just`.
+Hickory DNS uses `just` for build workflow management. While running `cargo test` at the project root will work, this is not exhaustive. Install `just` with `cargo install just`. A few of the `just` recipes require [`cargo-workspaces`](https://github.com/pksunkara/cargo-workspaces) to be installed, a plugin to optimize the workflow around cargo workspaces. Install the plugin with `cargo install cargo-workspaces`.
 
 - Default tests
 
@@ -291,7 +296,7 @@ example:
 $ resolve www.example.com.
 Querying for www.example.com. A from udp:8.8.8.8:53, tcp:8.8.8.8:53, udp:8.8.4.4:53, tcp:8.8.4.4:53, udp:[2001:4860:4860::8888]:53, tcp:[2001:4860:4860::8888]:53, udp:[2001:4860:4860::8844]:53, tcp:[2001:4860:4860::8844]:53
 Success for query name: www.example.com. type: A class: IN
-        www.example.com. 21063 IN A 93.184.216.34
+        www.example.com. 21063 IN A 93.184.215.14
 ```
 
 ## Using as a dependency and custom features

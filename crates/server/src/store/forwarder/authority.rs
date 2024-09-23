@@ -7,12 +7,15 @@
 
 use std::io;
 
-use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::{config::ResolveHosts, name_server::TokioConnectionProvider};
 use tracing::{debug, info};
 
+#[cfg(feature = "dnssec")]
+use crate::{authority::Nsec3QueryInfo, config::dnssec::NxProofKind};
 use crate::{
     authority::{
-        Authority, LookupError, LookupObject, LookupOptions, MessageRequest, UpdateResult, ZoneType,
+        Authority, LookupControlFlow, LookupError, LookupObject, LookupOptions, MessageRequest,
+        UpdateResult, ZoneType,
     },
     proto::{
         op::ResponseCode,
@@ -75,6 +78,12 @@ impl ForwardAuthority {
             options.preserve_intermediates = true;
         }
 
+        // Require people to explicitly request for /etc/hosts usage in forwarder
+        // configs
+        if options.use_hosts_file == ResolveHosts::Auto {
+            options.use_hosts_file = ResolveHosts::Never;
+        }
+
         let config = ResolverConfig::from_parts(None, vec![], name_servers);
 
         let resolver = TokioAsyncResolver::new(config, options, TokioConnectionProvider::default());
@@ -122,22 +131,29 @@ impl Authority for ForwardAuthority {
         name: &LowerName,
         rtype: RecordType,
         _lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         // TODO: make this an error?
         debug_assert!(self.origin.zone_of(name));
 
         debug!("forwarding lookup: {} {}", name, rtype);
-        let name: LowerName = name.clone();
-        let resolve = self.resolver.lookup(name, rtype).await;
 
-        resolve.map(ForwardLookup).map_err(LookupError::from)
+        // Ignore FQDN when we forward DNS queries. Without this we can't look
+        // up addresses from system hosts file.
+        let mut name: Name = name.clone().into();
+        name.set_fqdn(false);
+
+        use LookupControlFlow::*;
+        match self.resolver.lookup(name, rtype).await {
+            Ok(lookup) => Continue(Ok(ForwardLookup(lookup))),
+            Err(e) => Continue(Err(LookupError::from(e))),
+        }
     }
 
     async fn search(
         &self,
         request_info: RequestInfo<'_>,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         self.lookup(
             request_info.query.name(),
             request_info.query.query_type(),
@@ -150,11 +166,28 @@ impl Authority for ForwardAuthority {
         &self,
         _name: &LowerName,
         _lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
-        Err(LookupError::from(io::Error::new(
+    ) -> LookupControlFlow<Self::Lookup> {
+        LookupControlFlow::Continue(Err(LookupError::from(io::Error::new(
             io::ErrorKind::Other,
             "Getting NSEC records is unimplemented for the forwarder",
-        )))
+        ))))
+    }
+
+    #[cfg(feature = "dnssec")]
+    async fn get_nsec3_records(
+        &self,
+        _info: Nsec3QueryInfo<'_>,
+        _lookup_options: LookupOptions,
+    ) -> LookupControlFlow<Self::Lookup> {
+        LookupControlFlow::Continue(Err(LookupError::from(io::Error::new(
+            io::ErrorKind::Other,
+            "getting NSEC3 records is unimplemented for the forwarder",
+        ))))
+    }
+
+    #[cfg(feature = "dnssec")]
+    fn nx_proof_kind(&self) -> Option<&NxProofKind> {
+        None
     }
 }
 

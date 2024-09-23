@@ -12,7 +12,7 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-#[cfg(feature = "serde-config")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::error::*;
@@ -99,7 +99,7 @@ use crate::serialize::binary::*;
 ///    This document cannot be updated, only made obsolete and replaced by a
 ///    successor document.
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 #[non_exhaustive]
 pub enum Algorithm {
@@ -152,6 +152,22 @@ impl Algorithm {
             14 => Self::ECDSAP384SHA384,
             15 => Self::ED25519,
             _ => Self::Unknown(value),
+        }
+    }
+
+    /// Whether this algorithm is supported by hickory's build settings
+    pub fn is_supported(&self) -> bool {
+        match self {
+            #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
+            Algorithm::ECDSAP256SHA256
+            | Algorithm::ECDSAP384SHA384
+            | Algorithm::RSASHA1
+            | Algorithm::RSASHA1NSEC3SHA1
+            | Algorithm::RSASHA256
+            | Algorithm::RSASHA512 => true,
+            #[cfg(feature = "dnssec-ring")]
+            Algorithm::ED25519 => true,
+            _ => false,
         }
     }
 

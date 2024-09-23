@@ -103,9 +103,9 @@
 //! use std::str::FromStr;
 //! # use hickory_client::client::{Client, SyncClient};
 //! # use hickory_client::udp::UdpClientConnection;
-//! use hickory_client::op::DnsResponse;
-//! use hickory_client::rr::{DNSClass, Name, RData, Record, RecordType};
-//! use hickory_client::rr::rdata::A;
+//! use hickory_client::proto::xfer::DnsResponse;
+//! use hickory_client::proto::rr::{DNSClass, Name, RData, Record, RecordType};
+//! use hickory_client::proto::rr::rdata::A;
 //! #
 //! # let address = "8.8.8.8:53".parse().unwrap();
 //! # let conn = UdpClientConnection::new(address).unwrap();
@@ -128,8 +128,8 @@
 //! // Records are generic objects which can contain any data.
 //! //  In order to access it we need to first check what type of record it is
 //! //  In this case we are interested in A, IPv4 address
-//! if let Some(RData::A(ref ip)) = answers[0].data() {
-//!     assert_eq!(*ip, A::new(93, 184, 216, 34))
+//! if let RData::A(ref ip) = answers[0].data() {
+//!     assert_eq!(*ip, A::new(93, 184, 215, 14))
 //! } else {
 //!     assert!(false, "unexpected result")
 //! }
@@ -155,11 +155,11 @@
 //! # #[cfg(feature = "openssl")]
 //! use openssl::rsa::Rsa;
 //! use hickory_client::client::{Client, SyncClient};
-//! use hickory_client::udp::UdpClientConnection;
-//! use hickory_client::rr::{Name, RData, Record, RecordType};
+//! use hickory_client::proto::udp::UdpClientConnection;
+//! use hickory_client::proto::rr::{Name, RData, Record, RecordType};
 //! use hickory_client::proto::rr::dnssec::{Algorithm, SigSigner, KeyPair};
-//! use hickory_client::op::ResponseCode;
-//! use hickory_client::rr::rdata::{A, key::KEY};
+//! use hickory_client::proto::op::ResponseCode;
+//! use hickory_client::proto::rr::rdata::{A, key::KEY};
 //!
 //! # let address = "0.0.0.0:53".parse().unwrap();
 //! # let conn = UdpClientConnection::new(address).unwrap();
@@ -229,9 +229,9 @@
 //! use tokio::net::TcpStream as TokioTcpStream;
 //! use hickory_client::client::{AsyncClient, ClientHandle};
 //! use hickory_client::proto::iocompat::AsyncIoTokioAsStd;
-//! use hickory_client::rr::{DNSClass, Name, RData, RecordType};
-//! use hickory_client::rr::rdata::A;
-//! use hickory_client::tcp::TcpClientStream;
+//! use hickory_client::proto::rr::{DNSClass, Name, RData, RecordType};
+//! use hickory_client::proto::rr::rdata::A;
+//! use hickory_client::proto::tcp::TcpClientStream;
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -263,8 +263,8 @@
 //!     let response = query.await.unwrap();
 //!
 //!     // validate it's what we expected
-//!     if let Some(RData::A(addr)) = response.answers()[0].data() {
-//!         assert_eq!(*addr, A::new(93, 184, 216, 34));
+//!     if let RData::A(addr) = response.answers()[0].data() {
+//!         assert_eq!(*addr, A::new(93, 184, 215, 14));
 //!     }
 //! }
 //! ```
@@ -274,21 +274,19 @@ pub mod error;
 #[cfg(feature = "mdns")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mdns")))]
 pub mod multicast;
-pub mod op;
 pub mod rr;
-pub mod serialize;
 pub mod tcp;
 pub mod udp;
 
 // TODO: consider removing tcp/udp/https modules...
-#[cfg(feature = "dns-over-https")]
+#[cfg(feature = "dns-over-https-rustls")]
 mod h2_client_connection;
 
 pub use hickory_proto as proto;
 
 /// The https module which contains all https related connection types
-#[cfg(feature = "dns-over-https")]
-#[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+#[cfg(feature = "dns-over-https-rustls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
 pub mod h2 {
     pub use super::h2_client_connection::HttpsClientConnection;
 }

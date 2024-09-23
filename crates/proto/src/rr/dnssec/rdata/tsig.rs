@@ -8,10 +8,10 @@
 //! TSIG for secret key authentication of transaction
 #![allow(clippy::use_self)]
 
-use std::{convert::TryInto, fmt};
-
 use alloc::vec::Vec;
-#[cfg(feature = "serde-config")]
+use core::{convert::TryInto, fmt};
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -136,7 +136,7 @@ use crate::{
 ///      seconds (see Section 5.2.3).  This document assigns no meaning to
 ///      its contents in requests.
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct TSIG {
     algorithm: TsigAlgorithm,
@@ -176,7 +176,7 @@ pub struct TSIG {
 ///      | hmac-sha512-256          | MAY            | MAY             |
 ///      +--------------------------+----------------+-----------------+
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum TsigAlgorithm {
     /// HMAC-MD5.SIG-ALG.REG.INT (not supported for cryptographic operations)
@@ -524,7 +524,7 @@ impl TsigAlgorithm {
     }
 
     // TODO: remove this once hickory-client no longer has dnssec feature enabled by default
-    #[cfg(not(any(feature = "ring", feature = "openssl")))]
+    #[cfg(not(any(feature = "dnssec-ring", feature = "dnssec-openssl")))]
     #[doc(hidden)]
     #[allow(clippy::unimplemented)]
     pub fn mac_data(&self, _key: &[u8], _message: &[u8]) -> ProtoResult<Vec<u8>> {
@@ -535,8 +535,8 @@ impl TsigAlgorithm {
     ///
     /// Supported algorithm are HmacSha256, HmacSha384, HmacSha512 and HmacSha512_256
     /// Other algorithm return an error.
-    #[cfg(feature = "ring")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "ring")))]
+    #[cfg(feature = "dnssec-ring")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dnssec-ring")))]
     pub fn mac_data(&self, key: &[u8], message: &[u8]) -> ProtoResult<Vec<u8>> {
         use ring::hmac;
         use TsigAlgorithm::*;
@@ -558,8 +558,11 @@ impl TsigAlgorithm {
     ///
     /// Supported algorithm are HmacSha256, HmacSha384, HmacSha512 and HmacSha512_256
     /// Other algorithm return an error.
-    #[cfg(all(not(feature = "ring"), feature = "openssl"))]
-    #[cfg_attr(docsrs, doc(cfg(all(not(feature = "ring"), feature = "openssl"))))]
+    #[cfg(all(not(feature = "dnssec-ring"), feature = "dnssec-openssl"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(not(feature = "dnssec-ring"), feature = "dnssec-openssl")))
+    )]
     pub fn mac_data(&self, key: &[u8], message: &[u8]) -> ProtoResult<Vec<u8>> {
         use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
         use TsigAlgorithm::*;
@@ -578,7 +581,7 @@ impl TsigAlgorithm {
     }
 
     // TODO: remove this once hickory-client no longer has dnssec feature enabled by default
-    #[cfg(not(any(feature = "ring", feature = "openssl")))]
+    #[cfg(not(any(feature = "dnssec-ring", feature = "dnssec-openssl")))]
     #[doc(hidden)]
     #[allow(clippy::unimplemented)]
     pub fn verify_mac(&self, _key: &[u8], _message: &[u8], _tag: &[u8]) -> ProtoResult<()> {
@@ -588,8 +591,8 @@ impl TsigAlgorithm {
     /// Verifies the hmac tag against the given key and this algorithm.
     ///
     /// This is both faster than independently creating the MAC and also constant time preventing timing attacks
-    #[cfg(feature = "ring")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "ring")))]
+    #[cfg(feature = "dnssec-ring")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dnssec-ring")))]
     pub fn verify_mac(&self, key: &[u8], message: &[u8], tag: &[u8]) -> ProtoResult<()> {
         use ring::hmac;
         use TsigAlgorithm::*;
@@ -607,8 +610,11 @@ impl TsigAlgorithm {
     /// Verifies the hmac tag against the given key and this algorithm.
     ///
     /// This is constant time preventing timing attacks
-    #[cfg(all(not(feature = "ring"), feature = "openssl"))]
-    #[cfg_attr(docsrs, doc(cfg(all(not(feature = "ring"), feature = "openssl"))))]
+    #[cfg(all(not(feature = "dnssec-ring"), feature = "dnssec-openssl"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(not(feature = "dnssec-ring"), feature = "dnssec-openssl")))
+    )]
     pub fn verify_mac(&self, key: &[u8], message: &[u8], tag: &[u8]) -> ProtoResult<()> {
         use openssl::memcmp;
 
@@ -621,7 +627,7 @@ impl TsigAlgorithm {
     }
 
     // TODO: remove this once hickory-client no longer has dnssec feature enabled by default
-    #[cfg(not(any(feature = "ring", feature = "openssl")))]
+    #[cfg(not(any(feature = "dnssec-ring", feature = "dnssec-openssl")))]
     #[doc(hidden)]
     #[allow(clippy::unimplemented)]
     pub fn output_len(&self) -> ProtoResult<usize> {
@@ -629,8 +635,8 @@ impl TsigAlgorithm {
     }
 
     /// Return length in bytes of the algorithms output
-    #[cfg(feature = "ring")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "ring")))]
+    #[cfg(feature = "dnssec-ring")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dnssec-ring")))]
     pub fn output_len(&self) -> ProtoResult<usize> {
         use ring::hmac;
         use TsigAlgorithm::*;
@@ -646,8 +652,11 @@ impl TsigAlgorithm {
     }
 
     /// Return length in bytes of the algorithms output
-    #[cfg(all(not(feature = "ring"), feature = "openssl"))]
-    #[cfg_attr(docsrs, doc(cfg(all(not(feature = "ring"), feature = "openssl"))))]
+    #[cfg(all(not(feature = "dnssec-ring"), feature = "dnssec-openssl"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(not(feature = "dnssec-ring"), feature = "dnssec-openssl")))
+    )]
     pub fn output_len(&self) -> ProtoResult<usize> {
         use openssl::hash::MessageDigest;
         use TsigAlgorithm::*;
@@ -688,13 +697,13 @@ impl fmt::Display for TsigAlgorithm {
 /// # Arguments
 ///
 /// * `previous_hash` - hash of previous message in case of message chaining, or of query in case
-/// of response. Should be None for query
+///   of response. Should be None for query
 /// * `message` - the message to authenticate. Should not be modified after calling message_tbs
-/// except for adding the TSIG record
+///   except for adding the TSIG record
 /// * `pre_tsig` - TSIG rrdata, possibly with missing mac. Should not be modified in any other way
-/// after calling message_tbs
+///   after calling message_tbs
 /// * `key_name` - name of they key, should be the same as the name known by the remove
-/// server/client
+///   server/client
 pub fn message_tbs<M: BinEncodable>(
     previous_hash: Option<&[u8]>,
     message: &M,
@@ -718,7 +727,7 @@ pub fn message_tbs<M: BinEncodable>(
 /// # Arguments
 ///
 /// * `previous_hash` - hash of previous message in case of message chaining, or of query in case
-/// of response. Should be None for query
+///   of response. Should be None for query
 /// * `message` - the byte-message to authenticate, with included TSIG
 pub fn signed_bitmessage_to_buf(
     previous_hash: Option<&[u8]>,
@@ -757,7 +766,7 @@ pub fn signed_bitmessage_to_buf(
 
     // parse a tsig record
     let sig = Record::read(&mut decoder)?;
-    let tsig = if let (RecordType::TSIG, Some(RData::DNSSEC(DNSSECRData::TSIG(tsig_data)))) =
+    let tsig = if let (RecordType::TSIG, RData::DNSSEC(DNSSECRData::TSIG(tsig_data))) =
         (sig.record_type(), sig.data())
     {
         tsig_data
@@ -796,17 +805,17 @@ pub fn signed_bitmessage_to_buf(
 pub fn make_tsig_record(name: Name, rdata: TSIG) -> Record {
     // https://tools.ietf.org/html/rfc8945#section-4.2
 
-    let mut tsig = Record::new();
-
-    //   NAME:  The name of the key used, in domain name syntax
-    tsig.set_name(name)
-        //   TYPE:  This MUST be TSIG (250: Transaction SIGnature).
-        .set_record_type(RecordType::TSIG)
-        //   CLASS:  This MUST be ANY.
-        .set_dns_class(DNSClass::ANY)
+    let mut tsig = Record::from_rdata(
+        //   NAME:  The name of the key used, in domain name syntax
+        name,
         //   TTL:  This MUST be 0.
-        .set_ttl(0)
-        .set_data(Some(DNSSECRData::TSIG(rdata).into()));
+        0,
+        //   TYPE:  This MUST be TSIG (250: Transaction SIGnature).
+        DNSSECRData::TSIG(rdata).into(),
+    );
+
+    //   CLASS:  This MUST be ANY.
+    tsig.set_dns_class(DNSClass::ANY);
     tsig
 }
 
@@ -869,7 +878,7 @@ mod tests {
     #[test]
     fn test_sign_encode() {
         let mut message = Message::new();
-        message.add_answer(Record::new());
+        message.add_answer(Record::stub());
 
         let key_name = Name::from_ascii("some.name").unwrap();
 
@@ -900,10 +909,11 @@ mod tests {
         assert_eq!(tbs, tbv);
     }
 
+    #[cfg(any(feature = "dnssec-ring", feature = "dnssec-openssl"))]
     #[test]
     fn test_sign_encode_id_changed() {
         let mut message = Message::new();
-        message.set_id(123).add_answer(Record::new());
+        message.set_id(123).add_answer(Record::stub());
 
         let key_name = Name::from_ascii("some.name").unwrap();
 

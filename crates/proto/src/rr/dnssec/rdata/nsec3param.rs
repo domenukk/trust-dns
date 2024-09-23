@@ -7,10 +7,10 @@
 
 //! parameters used for the nsec3 hash method
 
-use std::fmt;
-
 use alloc::{string::ToString, vec::Vec};
-#[cfg(feature = "serde-config")]
+use core::fmt;
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -77,7 +77,7 @@ use super::DNSSECRData;
 ///  length of this field is determined by the preceding Salt Length
 ///  field.
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct NSEC3PARAM {
     hash_algorithm: Nsec3HashAlgorithm,

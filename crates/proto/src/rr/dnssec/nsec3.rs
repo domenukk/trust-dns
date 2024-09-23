@@ -22,15 +22,15 @@ use alloc::string::String;
 #[cfg(any(feature = "openssl", feature = "ring"))]
 use alloc::vec::Vec;
 
-#[cfg(feature = "serde-config")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg(any(feature = "openssl", feature = "ring"))]
+#[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
 use super::{Digest, DigestType};
 use crate::error::*;
-#[cfg(any(feature = "openssl", feature = "ring"))]
+#[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
 use crate::rr::Name;
-#[cfg(any(feature = "openssl", feature = "ring"))]
+#[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
 use crate::serialize::binary::{BinEncodable, BinEncoder};
 
 /// ```text
@@ -106,10 +106,11 @@ use crate::serialize::binary::{BinEncodable, BinEncoder};
 ///    Assignment of additional NSEC3 hash algorithms in this registry
 ///    requires IETF Standards Action [RFC2434].
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
 pub enum Nsec3HashAlgorithm {
     /// Hash for the Nsec3 records
+    #[default]
     SHA1,
 }
 
@@ -154,8 +155,11 @@ impl Nsec3HashAlgorithm {
     ///        original unexpanded form, including the "*" label (no wildcard
     ///        substitution);
     /// ```
-    #[cfg(any(feature = "openssl", feature = "ring"))]
-    #[cfg_attr(docsrs, doc(cfg(any(feature = "openssl", feature = "ring"))))]
+    #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring")))
+    )]
     pub fn hash(self, salt: &[u8], name: &Name, iterations: u16) -> ProtoResult<Digest> {
         match self {
             // if there ever is more than just SHA1 support, this should be a genericized method
@@ -164,7 +168,7 @@ impl Nsec3HashAlgorithm {
                 {
                     let mut encoder: BinEncoder<'_> = BinEncoder::new(&mut buf);
                     encoder.set_canonical_names(true);
-                    name.emit(&mut encoder).expect("could not encode Name");
+                    name.emit(&mut encoder)?;
                 }
 
                 Self::sha1_recursive_hash(salt, buf, iterations)
@@ -173,7 +177,7 @@ impl Nsec3HashAlgorithm {
     }
 
     /// until there is another supported algorithm, just hardcoded to this.
-    #[cfg(any(feature = "openssl", feature = "ring"))]
+    #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
     fn sha1_recursive_hash(salt: &[u8], bytes: Vec<u8>, iterations: u16) -> ProtoResult<Digest> {
         let digested: Digest;
         let to_digest = if iterations > 0 {
@@ -195,7 +199,7 @@ impl From<Nsec3HashAlgorithm> for u8 {
 }
 
 #[test]
-#[cfg(any(feature = "openssl", feature = "ring"))]
+#[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
 fn test_hash() {
     use alloc::{str::FromStr, vec::Vec};
 
@@ -226,10 +230,16 @@ fn test_hash() {
             .len(),
         20
     );
+
+    let name = Name::from_str("foo.a012345678901.a01234567890123456789012.a01234567890123456789012.a01234567890123456789012.a01234567890123456789012.a01234567890123456789012.a01234567890123456789912.a01234567890123456789012.a01234567890123456789012.a01234567890123456789012.example.com.").unwrap();
+
+    Nsec3HashAlgorithm::SHA1
+        .hash(&salt, &name, 0)
+        .expect_err("Expected ProtoError(DomainNameTooLong");
 }
 
 #[test]
-#[cfg(any(feature = "openssl", feature = "ring"))]
+#[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
 fn test_known_hashes() {
     // H(example)       = 0p9mhaveqvm6t7vbl5lop2u3t2rp3tom
     assert_eq!(
@@ -299,7 +309,7 @@ fn test_known_hashes() {
 }
 
 #[cfg(test)]
-#[cfg(any(feature = "openssl", feature = "ring"))]
+#[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
 fn hash_with_base32(name: &str) -> String {
     use data_encoding::BASE32_DNSSEC;
 

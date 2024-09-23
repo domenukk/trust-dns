@@ -90,24 +90,6 @@ pub struct UdpStream<S: Send> {
     outbound_messages: StreamReceiver,
 }
 
-/// To implement quinn::AsyncUdpSocket, we need our custom socket capable of getting local address.
-pub trait QuicLocalAddr {
-    /// Get local address
-    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr>;
-}
-
-#[cfg(feature = "tokio-runtime")]
-use tokio::net::UdpSocket as TokioUdpSocket;
-
-#[cfg(feature = "tokio-runtime")]
-#[cfg_attr(docsrs, doc(cfg(feature = "tokio-runtime")))]
-#[allow(unreachable_pub)]
-impl QuicLocalAddr for TokioUdpSocket {
-    fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        self.local_addr()
-    }
-}
-
 impl<S: UdpSocket + Send + 'static> UdpStream<S> {
     /// This method is intended for client connections, see `with_bound` for a method better for
     ///  straight listening. It is expected that the resolver wrapper will be responsible for
@@ -286,15 +268,14 @@ impl<S: DnsUdpSocket + Send> Future for NextRandomUdpSocket<S> {
 
     /// polls until there is an available next random UDP port,
     /// if no port has been specified in bind_addr.
-    ///
-    /// if there is no port available after 10 attempts, returns NotReady
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.bind_address.port() == 0 {
-            // Per RFC 6056 Section 2.1:
+            // Per RFC 6056 Section 3.2:
             //
-            //    The dynamic port range defined by IANA consists of the 49152-65535
-            //    range, and is meant for the selection of ephemeral ports.
-            let rand_port_range = Uniform::new_inclusive(49152_u16, u16::max_value());
+            // As mentioned in Section 2.1, the dynamic ports consist of the range
+            // 49152-65535.  However, ephemeral port selection algorithms should use
+            // the whole range 1024-65535.
+            let rand_port_range = Uniform::new_inclusive(1_024, u16::MAX);
             let mut rand = rand::thread_rng();
 
             for attempt in 0..10 {
@@ -324,19 +305,16 @@ impl<S: DnsUdpSocket + Send> Future for NextRandomUdpSocket<S> {
                 }
             }
 
-            debug!("could not get next random port, delaying");
-
-            // TODO: because no interest is registered anywhere, we must awake.
-            cx.waker().wake_by_ref();
-
-            // returning NotReady here, perhaps the next poll there will be some more socket available.
-            Poll::Pending
-        } else {
-            // Use port that was specified in bind address.
-            (*self.closure)(self.bind_address, self.name_server)
-                .as_mut()
-                .poll(cx)
+            debug!("could not get next random port, falling back to OS assignment");
+            // When no free port was found after 10 tries let the OS assign one.
+            // This is needed in cases where almost all udp ports are in use on the host
+            // so the chance of finding a free is very low and it could spam 1000s of bind
+            // calls without finding a free one until the future is canceled.
         }
+        // Use port that was specified in bind address.
+        (*self.closure)(self.bind_address, self.name_server)
+            .as_mut()
+            .poll(cx)
     }
 }
 
@@ -400,9 +378,7 @@ impl DnsUdpSocket for tokio::net::UdpSocket {
 #[cfg(test)]
 #[cfg(feature = "tokio-runtime")]
 mod tests {
-    #[cfg(not(target_os = "linux"))] // ignored until Travis-CI fixes IPv6
-    use std::net::Ipv6Addr;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use tokio::{net::UdpSocket as TokioUdpSocket, runtime::Runtime};
 
     #[test]
@@ -422,7 +398,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "linux"))] // ignored until Travis-CI fixes IPv6
     fn test_udp_stream_ipv6() {
         use crate::tests::udp_stream_test;
         let io_loop = Runtime::new().expect("failed to create tokio runtime");

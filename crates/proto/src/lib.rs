@@ -28,14 +28,12 @@
 )]
 #![recursion_limit = "2048"]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![cfg_attr(not(feature = "std"), feature(error_in_core))]
-#![cfg_attr(not(feature = "std"), feature(ip_in_core))]
 
 //! Hickory DNS Protocol library
 
-#[cfg(not(any(feature = "std", feature = "unstable")))]
+#[cfg(not(any(feature = "std", feature = "embedded")))]
 compile_error!(
-    "Currently, no_std support only works with unstable features. Use a nightly toolchain and the `unstable` feature, or enable the `std` feature."
+    "Either the 'std' or the 'embedded' feature need to be enabled for hickory to work. Likely, you want to enable 'std'."
 );
 
 #[cfg(feature = "std")]
@@ -127,16 +125,16 @@ pub fn spawn_bg<F: Future<Output = R> + Send + 'static, R: Send + 'static>(
 }
 
 pub mod error;
-#[cfg(feature = "dns-over-https")]
-#[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+#[cfg(feature = "dns-over-https-rustls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
 pub mod h2;
 #[cfg(feature = "dns-over-h3")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-h3")))]
 pub mod h3;
-#[cfg(any(feature = "dns-over-https", feature = "dns-over-h3"))]
+#[cfg(any(feature = "dns-over-https-rustls", feature = "dns-over-h3"))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(any(feature = "dns-over-https", feature = "dns-over-h3")))
+    doc(cfg(any(feature = "dns-over-https-rustls", feature = "dns-over-h3")))
 )]
 pub mod http;
 #[cfg(feature = "mdns")]

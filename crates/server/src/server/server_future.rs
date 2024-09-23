@@ -13,8 +13,12 @@ use std::{
 
 use futures_util::{FutureExt, StreamExt};
 use hickory_proto::{op::MessageType, rr::Record};
+use ipnet::IpNet;
 #[cfg(feature = "dns-over-rustls")]
-use rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer},
+    ServerConfig,
+};
 use tokio::{net, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -22,6 +26,7 @@ use tracing::{debug, info, warn};
 #[cfg(all(feature = "dns-over-openssl", not(feature = "dns-over-rustls")))]
 use crate::proto::openssl::tls_server::*;
 use crate::{
+    access::AccessControl,
     authority::{MessageRequest, MessageResponseBuilder},
     proto::{
         error::ProtoError,
@@ -42,15 +47,26 @@ pub struct ServerFuture<T: RequestHandler> {
     handler: Arc<T>,
     join_set: JoinSet<Result<(), ProtoError>>,
     shutdown_token: CancellationToken,
+    access: Arc<AccessControl>,
 }
 
 impl<T: RequestHandler> ServerFuture<T> {
     /// Creates a new ServerFuture with the specified Handler.
     pub fn new(handler: T) -> Self {
+        Self::with_access(handler, &[], &[])
+    }
+
+    /// Creates a new ServerFuture with the specified Handler and Access
+    pub fn with_access(handler: T, denied_networks: &[IpNet], allowed_networks: &[IpNet]) -> Self {
+        let mut access = AccessControl::default();
+        access.insert_deny(denied_networks);
+        access.insert_allow(allowed_networks);
+
         Self {
             handler: Arc::new(handler),
             join_set: JoinSet::new(),
             shutdown_token: CancellationToken::new(),
+            access: Arc::new(access),
         }
     }
 
@@ -64,6 +80,7 @@ impl<T: RequestHandler> ServerFuture<T> {
             UdpStream::with_bound(socket, ([127, 255, 255, 254], 0).into());
         let shutdown = self.shutdown_token.clone();
         let handler = self.handler.clone();
+        let access = self.access.clone();
 
         // this spawns a ForEach future which handles all the requests into a Handler.
         self.join_set.spawn({
@@ -81,6 +98,9 @@ impl<T: RequestHandler> ServerFuture<T> {
                     let message = match message {
                         Err(e) => {
                             warn!("error receiving message on udp_socket: {}", e);
+                            if is_unrecoverable_socket_error(&e) {
+                                break;
+                            }
                             continue;
                         }
                         Ok(message) => message,
@@ -100,10 +120,12 @@ impl<T: RequestHandler> ServerFuture<T> {
                     }
 
                     let handler = handler.clone();
+                    let access = access.clone();
                     let stream_handle = stream_handle.with_remote_addr(src_addr);
 
                     inner_join_set.spawn(async move {
-                        handle_raw_request(message, Protocol::Udp, handler, stream_handle).await;
+                        handle_raw_request(message, Protocol::Udp, access, handler, stream_handle)
+                            .await;
                     });
 
                     reap_tasks(&mut inner_join_set);
@@ -141,6 +163,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         debug!("register tcp: {:?}", listener);
 
         let handler = self.handler.clone();
+        let access = self.access.clone();
 
         // for each incoming request...
         let shutdown = self.shutdown_token.clone();
@@ -152,6 +175,9 @@ impl<T: RequestHandler> ServerFuture<T> {
                         Ok((t, s)) => (t, s),
                         Err(e) => {
                             debug!("error receiving TCP tcp_stream error: {}", e);
+                            if is_unrecoverable_socket_error(&e) {
+                                break;
+                            }
                             continue;
                         },
                     },
@@ -172,6 +198,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                 }
 
                 let handler = handler.clone();
+                let access = access.clone();
 
                 // and spawn to the io_loop
                 inner_join_set.spawn(async move {
@@ -198,6 +225,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                         handle_raw_request(
                             message,
                             Protocol::Tcp,
+                            access.clone(),
                             handler.clone(),
                             stream_handle.clone(),
                         )
@@ -208,7 +236,11 @@ impl<T: RequestHandler> ServerFuture<T> {
                 reap_tasks(&mut inner_join_set);
             }
 
-            Ok(())
+            if shutdown.is_cancelled() {
+                Ok(())
+            } else {
+                Err(ProtoError::from("unexpected close of socket"))
+            }
         });
     }
 
@@ -262,6 +294,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         use std::pin::Pin;
         use tokio_openssl::SslStream as TokioSslStream;
 
+        let access = self.access.clone();
         let ((cert, chain), key) = certificate_and_key;
 
         let handler = self.handler.clone();
@@ -270,19 +303,24 @@ impl<T: RequestHandler> ServerFuture<T> {
         let tls_acceptor = Box::pin(tls_server::new_acceptor(cert, chain, key)?);
 
         // for each incoming request...
-        let shutdown = self.shutdown_watch.clone();
+        let shutdown = self.shutdown_token.clone();
         self.join_set.spawn(async move {
             let mut inner_join_set = JoinSet::new();
             loop {
+                let access = access.clone();
+                let shutdown = shutdown.clone();
                 let (tcp_stream, src_addr) = tokio::select! {
                     tcp_stream = listener.accept() => match tcp_stream {
                         Ok((t, s)) => (t, s),
                         Err(e) => {
                             debug!("error receiving TLS tcp_stream error: {}", e);
+                            if is_unrecoverable_socket_error(&e) {
+                                break;
+                            }
                             continue;
                         },
                     },
-                    _ = shutdown.clone().signaled() => {
+                    _ = shutdown.cancelled() => {
                         // A graceful shutdown was initiated. Break out of the loop.
                         break;
                     },
@@ -343,6 +381,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                         self::handle_raw_request(
                             message,
                             Protocol::Tls,
+                            access.clone(),
                             handler.clone(),
                             stream_handle.clone(),
                         )
@@ -353,7 +392,11 @@ impl<T: RequestHandler> ServerFuture<T> {
                 reap_tasks(&mut inner_join_set);
             }
 
-            Ok(())
+            if shutdown.is_cancelled() {
+                Ok(())
+            } else {
+                Err(ProtoError::from("unexpected close of socket"))
+            }
         });
 
         Ok(())
@@ -415,6 +458,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         use tokio_rustls::TlsAcceptor;
 
         let handler = self.handler.clone();
+        let access = self.access.clone();
 
         debug!("registered tcp: {:?}", listener);
 
@@ -430,6 +474,9 @@ impl<T: RequestHandler> ServerFuture<T> {
                         Ok((t, s)) => (t, s),
                         Err(e) => {
                             debug!("error receiving TLS tcp_stream error: {}", e);
+                            if is_unrecoverable_socket_error(&e) {
+                                break;
+                            }
                             continue;
                         },
                     },
@@ -450,6 +497,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                 }
 
                 let handler = handler.clone();
+                let access = access.clone();
                 let tls_acceptor = tls_acceptor.clone();
 
                 // kick out to a different task immediately, let them do the TLS handshake
@@ -486,6 +534,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                         handle_raw_request(
                             message,
                             Protocol::Tls,
+                            access.clone(),
                             handler.clone(),
                             stream_handle.clone(),
                         )
@@ -496,7 +545,11 @@ impl<T: RequestHandler> ServerFuture<T> {
                 reap_tasks(&mut inner_join_set);
             }
 
-            Ok(())
+            if shutdown.is_cancelled() {
+                Ok(())
+            } else {
+                Err(ProtoError::from("unexpected close of socket"))
+            }
         });
 
         Ok(())
@@ -521,7 +574,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         &mut self,
         listener: net::TcpListener,
         timeout: Duration,
-        certificate_and_key: (Vec<Certificate>, PrivateKey),
+        certificate_and_key: (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>),
     ) -> io::Result<()> {
         use crate::proto::rustls::tls_server;
 
@@ -534,39 +587,6 @@ impl<T: RequestHandler> ServerFuture<T> {
         })?;
 
         Self::register_tls_listener_with_tls_config(self, listener, timeout, Arc::new(tls_acceptor))
-    }
-
-    /// Register a TlsListener to the Server. The TlsListener should already be bound to either an
-    /// IPv6 or an IPv4 address.
-    ///
-    /// To make the server more resilient to DOS issues, there is a timeout. Care should be taken
-    ///  to not make this too low depending on use cases.
-    ///
-    /// # Arguments
-    /// * `listener` - a bound TCP (needs to be on a different port from standard TCP connections) socket
-    /// * `timeout` - timeout duration of incoming requests, any connection that does not send
-    ///               requests within this time period will be closed. In the future it should be
-    ///               possible to create long-lived queries, but these should be from trusted sources
-    ///               only, this would require some type of whitelisting.
-    /// * `pkcs12` - certificate used to announce to clients
-    #[cfg(all(
-        feature = "dns-over-https-openssl",
-        not(feature = "dns-over-https-rustls")
-    ))]
-    #[cfg_attr(
-        docsrs,
-        doc(cfg(all(
-            feature = "dns-over-https-openssl",
-            not(feature = "dns-over-https-rustls")
-        )))
-    )]
-    pub fn register_https_listener(
-        &self,
-        listener: tcp::TcpListener,
-        timeout: Duration,
-        pkcs12: ParsedPkcs12,
-    ) -> io::Result<()> {
-        unimplemented!("openssl based `dns-over-https` not yet supported. see the `dns-over-https-rustls` feature")
     }
 
     /// Register a TcpListener for HTTPS (h2) to the Server for supporting DoH (dns-over-https). The TcpListener should already be bound to either an
@@ -589,7 +609,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         listener: net::TcpListener,
         // TODO: need to set a timeout between requests.
         _timeout: Duration,
-        certificate_and_key: (Vec<Certificate>, PrivateKey),
+        certificate_and_key: (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>),
         dns_hostname: Option<String>,
     ) -> io::Result<()> {
         use tokio_rustls::TlsAcceptor;
@@ -600,6 +620,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         let dns_hostname: Option<Arc<str>> = dns_hostname.map(|n| n.into());
 
         let handler = self.handler.clone();
+        let access = self.access.clone();
         debug!("registered https: {listener:?}");
 
         let tls_acceptor = tls_server::new_acceptor(certificate_and_key.0, certificate_and_key.1)
@@ -622,6 +643,9 @@ impl<T: RequestHandler> ServerFuture<T> {
                         Ok((t, s)) => (t, s),
                         Err(e) => {
                             debug!("error receiving HTTPS tcp_stream error: {}", e);
+                            if is_unrecoverable_socket_error(&e) {
+                                break;
+                            }
                             continue;
                         },
                     },
@@ -638,6 +662,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                 }
 
                 let handler = handler.clone();
+                let access = access.clone();
                 let tls_acceptor = tls_acceptor.clone();
                 let dns_hostname = dns_hostname.clone();
 
@@ -658,6 +683,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                     debug!("accepted HTTPS request from: {src_addr}");
 
                     h2_handler(
+                        access,
                         handler,
                         tls_stream,
                         src_addr,
@@ -670,7 +696,11 @@ impl<T: RequestHandler> ServerFuture<T> {
                 reap_tasks(&mut inner_join_set);
             }
 
-            Ok(())
+            if shutdown.is_cancelled() {
+                Ok(())
+            } else {
+                Err(ProtoError::from("unexpected close of socket"))
+            }
         });
 
         Ok(())
@@ -696,7 +726,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         socket: net::UdpSocket,
         // TODO: need to set a timeout between requests.
         _timeout: Duration,
-        certificate_and_key: (Vec<Certificate>, PrivateKey),
+        certificate_and_key: (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>),
         dns_hostname: Option<String>,
     ) -> io::Result<()> {
         use crate::proto::quic::QuicServer;
@@ -705,6 +735,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         let dns_hostname: Option<Arc<str>> = dns_hostname.map(|n| n.into());
 
         let handler = self.handler.clone();
+        let access = self.access.clone();
 
         debug!("registered quic: {:?}", socket);
         let mut server =
@@ -743,15 +774,22 @@ impl<T: RequestHandler> ServerFuture<T> {
                 }
 
                 let handler = handler.clone();
+                let access = access.clone();
                 let dns_hostname = dns_hostname.clone();
 
                 inner_join_set.spawn(async move {
                     debug!("starting quic stream request from: {src_addr}");
 
                     // TODO: need to consider timeout of total connect...
-                    let result =
-                        quic_handler(handler, streams, src_addr, dns_hostname, shutdown.clone())
-                            .await;
+                    let result = quic_handler(
+                        access,
+                        handler,
+                        streams,
+                        src_addr,
+                        dns_hostname,
+                        shutdown.clone(),
+                    )
+                    .await;
 
                     if let Err(e) = result {
                         warn!("quic stream processing failed from {src_addr}: {e}")
@@ -787,7 +825,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         socket: net::UdpSocket,
         // TODO: need to set a timeout between requests.
         _timeout: Duration,
-        certificate_and_key: (Vec<Certificate>, PrivateKey),
+        certificate_and_key: (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>),
         dns_hostname: Option<String>,
     ) -> io::Result<()> {
         use crate::proto::h3::h3_server::H3Server;
@@ -796,6 +834,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         let dns_hostname: Option<Arc<str>> = dns_hostname.map(|n| n.into());
 
         let handler = self.handler.clone();
+        let access = self.access.clone();
 
         debug!("registered h3: {:?}", socket);
         let mut server =
@@ -834,15 +873,22 @@ impl<T: RequestHandler> ServerFuture<T> {
                 }
 
                 let handler = handler.clone();
+                let access = access.clone();
                 let dns_hostname = dns_hostname.clone();
 
                 inner_join_set.spawn(async move {
                     debug!("starting h3 stream request from: {src_addr}");
 
                     // TODO: need to consider timeout of total connect...
-                    let result =
-                        h3_handler(handler, streams, src_addr, dns_hostname, shutdown.clone())
-                            .await;
+                    let result = h3_handler(
+                        access,
+                        handler,
+                        streams,
+                        src_addr,
+                        dns_hostname,
+                        shutdown.clone(),
+                    )
+                    .await;
 
                     if let Err(e) = result {
                         warn!("h3 stream processing failed from {src_addr}: {e}")
@@ -912,6 +958,7 @@ fn reap_tasks(join_set: &mut JoinSet<()>) {
 pub(crate) async fn handle_raw_request<T: RequestHandler>(
     message: SerialMessage,
     protocol: Protocol,
+    access: Arc<AccessControl>,
     request_handler: Arc<T>,
     response_handler: BufDnsStreamHandle,
 ) {
@@ -922,6 +969,7 @@ pub(crate) async fn handle_raw_request<T: RequestHandler>(
         message.bytes(),
         src_addr,
         protocol,
+        access,
         request_handler,
         response_handler,
     )
@@ -992,6 +1040,7 @@ pub(crate) async fn handle_request<R: ResponseHandler, T: RequestHandler>(
     message_bytes: &[u8],
     src_addr: SocketAddr,
     protocol: Protocol,
+    access: Arc<AccessControl>,
     request_handler: Arc<T>,
     response_handler: R,
 ) {
@@ -1045,6 +1094,56 @@ pub(crate) async fn handle_request<R: ResponseHandler, T: RequestHandler>(
         request_handler.handle_request(&request, reporter).await;
     };
 
+    // method to return an error to the client
+    let error_response_handler = |protocol: Protocol,
+                                  src_addr: SocketAddr,
+                                  header: Header,
+                                  query: LowerQuery,
+                                  response_code: ResponseCode,
+                                  error: Box<ProtoError>,
+                                  response_handler: R| async move {
+        // debug for more info on why the message parsing failed
+        debug!(
+            "request:{id} src:{proto}://{addr}#{port} type:{message_type} {op}:{response_code}:{error}",
+            id = header.id(),
+            proto = protocol,
+            addr = src_addr.ip(),
+            port = src_addr.port(),
+            message_type = header.message_type(),
+            op = header.op_code(),
+            response_code = response_code,
+            error = error,
+        );
+
+        // The reporter will handle making sure to log the result of the request
+        let mut reporter = ReportingResponseHandler {
+            request_header: header,
+            query,
+            protocol,
+            src_addr,
+            handler: response_handler,
+        };
+
+        let response = MessageResponseBuilder::new(None);
+        let result = reporter
+            .send_response(response.error_msg(&header, response_code))
+            .await;
+
+        if let Err(e) = result {
+            warn!("failed to return FormError to client: {}", e);
+        }
+    };
+
+    if !access.allow(src_addr.ip()) {
+        info!(
+            "request:Refused src:{proto}://{addr}#{port}",
+            proto = protocol,
+            addr = src_addr.ip(),
+            port = src_addr.port(),
+        );
+        return;
+    }
+
     // Attempt to decode the message
     match MessageRequest::read(&mut decoder) {
         Ok(message) => {
@@ -1057,37 +1156,23 @@ pub(crate) async fn handle_request<R: ResponseHandler, T: RequestHandler>(
                 .expect("as form_error already confirmed this is a FormError");
             let query = LowerQuery::query(Query::default());
 
-            // debug for more info on why the message parsing failed
-            debug!(
-                "request:{id} src:{proto}://{addr}#{port} type:{message_type} {op}:FormError:{error}",
-                id = header.id(),
-                proto = protocol,
-                addr = src_addr.ip(),
-                port = src_addr.port(),
-                message_type= header.message_type(),
-                op = header.op_code(),
-                error = error,
-            );
-
-            // The reporter will handle making sure to log the result of the request
-            let mut reporter = ReportingResponseHandler {
-                request_header: header,
-                query,
+            error_response_handler(
                 protocol,
                 src_addr,
-                handler: response_handler,
-            };
-
-            let response = MessageResponseBuilder::new(None);
-            let result = reporter
-                .send_response(response.error_msg(&header, ResponseCode::FormErr))
-                .await;
-
-            if let Err(e) = result {
-                warn!("failed to return FormError to client: {}", e);
-            }
+                header,
+                query,
+                ResponseCode::FormErr,
+                error,
+                response_handler,
+            )
+            .await;
         }
-        Err(e) => warn!("failed to read message: {}", e),
+        Err(error) => info!(
+            "request:Failed src:{proto}://{addr}#{port} error:{error}",
+            proto = protocol,
+            addr = src_addr.ip(),
+            port = src_addr.port(),
+        ),
     }
 }
 
@@ -1133,13 +1218,20 @@ fn sanitize_src_address(src: SocketAddr) -> Result<(), String> {
     }
 }
 
+fn is_unrecoverable_socket_error(err: &io::Error) -> bool {
+    matches!(
+        err.kind(),
+        io::ErrorKind::NotConnected | io::ErrorKind::ConnectionAborted
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::authority::Catalog;
     use futures_util::future;
     #[cfg(feature = "dns-over-rustls")]
-    use rustls::{Certificate, PrivateKey};
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
     use std::net::SocketAddr;
     use tokio::net::{TcpListener, UdpSocket};
     use tokio::time::timeout;
@@ -1178,21 +1270,21 @@ mod tests {
     #[test]
     fn test_sanitize_src_addr() {
         // ipv4 tests
-        assert!(sanitize_src_address(SocketAddr::from(([192, 168, 1, 1], 4096))).is_ok());
+        assert!(sanitize_src_address(SocketAddr::from(([192, 168, 1, 1], 4_096))).is_ok());
         assert!(sanitize_src_address(SocketAddr::from(([127, 0, 0, 1], 53))).is_ok());
 
         assert!(sanitize_src_address(SocketAddr::from(([0, 0, 0, 0], 0))).is_err());
         assert!(sanitize_src_address(SocketAddr::from(([192, 168, 1, 1], 0))).is_err());
-        assert!(sanitize_src_address(SocketAddr::from(([0, 0, 0, 0], 4096))).is_err());
-        assert!(sanitize_src_address(SocketAddr::from(([255, 255, 255, 255], 4096))).is_err());
+        assert!(sanitize_src_address(SocketAddr::from(([0, 0, 0, 0], 4_096))).is_err());
+        assert!(sanitize_src_address(SocketAddr::from(([255, 255, 255, 255], 4_096))).is_err());
 
         // ipv6 tests
         assert!(
-            sanitize_src_address(SocketAddr::from(([0x20, 0, 0, 0, 0, 0, 0, 0x1], 4096))).is_ok()
+            sanitize_src_address(SocketAddr::from(([0x20, 0, 0, 0, 0, 0, 0, 0x1], 4_096))).is_ok()
         );
-        assert!(sanitize_src_address(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 4096))).is_ok());
+        assert!(sanitize_src_address(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 4_096))).is_ok());
 
-        assert!(sanitize_src_address(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 4096))).is_err());
+        assert!(sanitize_src_address(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 4_096))).is_err());
         assert!(sanitize_src_address(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 0))).is_err());
         assert!(
             sanitize_src_address(SocketAddr::from(([0x20, 0, 0, 0, 0, 0, 0, 0x1], 0))).is_err()
@@ -1331,7 +1423,7 @@ mod tests {
     }
 
     #[cfg(feature = "dns-over-rustls")]
-    fn rustls_cert_key() -> (Vec<Certificate>, PrivateKey) {
+    fn rustls_cert_key() -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
         use hickory_proto::rustls::tls_server;
         use std::env;
         use std::path::Path;
@@ -1344,7 +1436,7 @@ mod tests {
         )))
         .map_err(|e| format!("error reading cert: {e}"))
         .unwrap();
-        let key = tls_server::read_key_from_pem(Path::new(&format!(
+        let key = tls_server::read_key(Path::new(&format!(
             "{}/tests/test-data/cert.key",
             server_path
         )))

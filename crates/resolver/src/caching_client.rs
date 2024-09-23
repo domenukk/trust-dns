@@ -26,7 +26,7 @@ use crate::{
     error::ResolveError,
     lookup::Lookup,
     proto::{
-        error::ProtoError,
+        error::{ForwardNSData, ProtoError},
         op::{Query, ResponseCode},
         rr::{
             domain::usage::{
@@ -151,21 +151,19 @@ where
                             query,
                             None,
                             None,
+                            None,
                             ResponseCode::NoError,
                             false,
                         ))
                     } // Are there any other types we can use?
                 },
-                // when mdns is enabled we will follow a standard query path
-                #[cfg(feature = "mdns")]
-                ResolverUsage::LinkLocal => (),
                 // TODO: this requires additional config, as Kubernetes and other systems misuse the .local. zone.
                 // when mdns is not enabled we will return errors on LinkLocal ("*.local.") names
-                #[cfg(not(feature = "mdns"))]
                 ResolverUsage::LinkLocal => (),
                 ResolverUsage::NxDomain => {
                     return Err(ProtoError::nx_error(
                         query,
+                        None,
                         None,
                         None,
                         ResponseCode::NXDomain,
@@ -211,12 +209,14 @@ where
                         negative_ttl,
                         response_code,
                         trusted,
+                        ns,
                     } => {
                         Err(Self::handle_nxdomain(
                             is_dnssec,
                             false, /*tbd*/
                             query.as_ref().clone(),
                             soa.as_ref().map(Box::as_ref).cloned(),
+                            ns.clone(),
                             *negative_ttl,
                             *response_code,
                             *trusted,
@@ -276,11 +276,13 @@ where
     /// * `message` - message to extract SOA, etc, from for caching failed requests
     /// * `valid_nsec` - species that in DNSSEC mode, this request is safe to cache
     /// * `negative_ttl` - this should be the SOA minimum for negative ttl
+    #[allow(clippy::too_many_arguments)]
     fn handle_nxdomain(
         is_dnssec: bool,
         valid_nsec: bool,
         query: Query,
         soa: Option<Record<SOA>>,
+        ns: Option<Vec<ForwardNSData>>,
         negative_ttl: Option<u32>,
         response_code: ResponseCode,
         trusted: bool,
@@ -290,6 +292,7 @@ where
             ProtoErrorKind::NoRecordsFound {
                 query: Box::new(query),
                 soa: soa.map(Box::new),
+                ns,
                 negative_ttl,
                 response_code,
                 trusted: true,
@@ -300,6 +303,7 @@ where
             ProtoErrorKind::NoRecordsFound {
                 query: Box::new(query),
                 soa: soa.map(Box::new),
+                ns,
                 negative_ttl: None,
                 response_code,
                 trusted,
@@ -345,7 +349,7 @@ where
                         (Cow::Borrowed(query.name()), INITIAL_TTL, false),
                         |(search_name, cname_ttl, was_cname), r| {
                             match r.data() {
-                                Some(RData::CNAME(CNAME(ref cname))) => {
+                                RData::CNAME(CNAME(ref cname)) => {
                                     // take the minimum TTL of the cname_ttl and the next record in the chain
                                     let ttl = cname_ttl.min(r.ttl());
                                     debug_assert_eq!(r.record_type(), RecordType::CNAME);
@@ -353,7 +357,7 @@ where
                                         return (Cow::Owned(cname.clone()), ttl, true);
                                     }
                                 }
-                                Some(RData::SRV(ref srv)) => {
+                                RData::SRV(ref srv) => {
                                     // take the minimum TTL of the cname_ttl and the next record in the chain
                                     let ttl = cname_ttl.min(r.ttl());
                                     debug_assert_eq!(r.record_type(), RecordType::SRV);
@@ -459,6 +463,7 @@ where
                 true,
                 query.clone(),
                 soa,
+                None,
                 negative_ttl,
                 response_code,
                 false,
@@ -550,10 +555,10 @@ mod tests {
             vec![(
                 Record::from_rdata(
                     query.name().clone(),
-                    u32::max_value(),
+                    u32::MAX,
                     RData::A(A::new(127, 0, 0, 1)),
                 ),
-                u32::max_value(),
+                u32::MAX,
             )],
             Instant::now(),
         );

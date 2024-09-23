@@ -8,23 +8,26 @@
 //! Configuration types for all security options in hickory-dns
 
 use std::path::Path;
+#[cfg(feature = "dnssec")]
+use std::sync::Arc;
 
 #[cfg(all(feature = "dns-over-openssl", not(feature = "dns-over-rustls")))]
 use openssl::{pkey::PKey, stack::Stack, x509::X509};
 #[cfg(feature = "dns-over-rustls")]
-use rustls::{Certificate, PrivateKey};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use serde::Deserialize;
 
 use crate::proto::rr::domain::Name;
 #[cfg(feature = "dnssec")]
 use crate::proto::rr::{
-    dnssec::{Algorithm, KeyFormat, KeyPair, Private, SigSigner},
+    dnssec::{Algorithm, KeyFormat, KeyPair, Nsec3HashAlgorithm, Private, SigSigner},
     domain::IntoName,
 };
 use crate::proto::serialize::txt::ParseResult;
 
 /// Key pair configuration for DNSSEC keys for signing a zone
 #[derive(Deserialize, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct KeyConfig {
     /// file path to the key
     pub key_path: String,
@@ -202,6 +205,7 @@ impl Default for PrivateKeyType {
 
 /// Configuration for a TLS certificate
 #[derive(Deserialize, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct TlsCertConfig {
     path: String,
     endpoint_name: Option<String>,
@@ -241,6 +245,27 @@ impl TlsCertConfig {
     pub fn get_private_key_type(&self) -> PrivateKeyType {
         self.private_key_type.unwrap_or_default()
     }
+}
+
+/// The kind of non-existence proof provided by the nameserver
+#[cfg(feature = "dnssec")]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NxProofKind {
+    /// Use NSEC
+    Nsec,
+    /// Use NSEC3
+    Nsec3 {
+        /// The algorithm used to hash the names.
+        #[serde(default)]
+        algorithm: Nsec3HashAlgorithm,
+        /// The salt used for hashing.
+        #[serde(default)]
+        salt: Arc<[u8]>,
+        /// The number of hashing iterations.
+        #[serde(default)]
+        iterations: u16,
+    },
 }
 
 /// set of DNSSEC algorithms to use to sign the zone. enable_dnssec must be true.
@@ -344,11 +369,15 @@ pub fn load_cert(
                 );
             }
             info!("loading TLS PKCS12 certificate from: {:?}", path);
-            return read_cert_pkcs12(&path, password).map_err(Into::into);
+            let ((cert_opt, cert_chain), private_key_opt) = read_cert_pkcs12(&path, password)?;
+            let cert = cert_opt.ok_or_else(|| format!("no certificate in {path:?}"))?;
+            let private_key =
+                private_key_opt.ok_or_else(|| format!("no private key in {path:?}"))?;
+            return Ok(((cert, cert_chain), private_key));
         }
     };
 
-    // it wasn't plcs12, we need to load the key separately
+    // it wasn't pkcs12, we need to load the key separately
     let key = match (private_key_path, private_key_type) {
         (Some(private_key_path), PrivateKeyType::Pkcs8) => {
             info!("loading TLS PKCS8 key from: {}", private_key_path.display());
@@ -374,7 +403,7 @@ pub fn load_cert(
 pub fn load_cert(
     zone_dir: &Path,
     tls_cert_config: &TlsCertConfig,
-) -> Result<(Vec<Certificate>, PrivateKey), String> {
+) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), String> {
     use tracing::{info, warn};
 
     use crate::proto::rustls::tls_server::{read_cert, read_key, read_key_from_der};

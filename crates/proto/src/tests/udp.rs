@@ -127,9 +127,6 @@ pub fn udp_client_stream_test<S: UdpSocket + Send + 'static, E: Executor>(
     use alloc::str::FromStr;
     use std::time::Duration;
 
-    // use env_logger;
-    // env_logger::try_init().ok();
-
     let succeeded = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let succeeded_clone = succeeded.clone();
     std::thread::Builder::new()
@@ -226,7 +223,7 @@ pub fn udp_client_stream_test<S: UdpSocket + Send + 'static, E: Executor>(
         println!("client got response {i}");
 
         let response = Message::from(response);
-        if let Some(RData::NULL(null)) = response.answers()[0].data() {
+        if let RData::NULL(null) = response.answers()[0].data() {
             assert_eq!(null.anything(), test_bytes);
         } else {
             panic!("not a NULL response");

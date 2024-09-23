@@ -28,10 +28,10 @@ use crate::xfer::SerialMessage;
 use crate::BufDnsStreamHandle;
 
 pub(crate) const MDNS_PORT: u16 = 5353;
-/// mDNS ipv4 address https://www.iana.org/assignments/multicast-addresses/multicast-addresses.xhtml
+/// mDNS ipv4 address, see [multicast-addresses](https://www.iana.org/assignments/multicast-addresses/multicast-addresses.xhtml)
 pub static MDNS_IPV4: Lazy<SocketAddr> =
     Lazy::new(|| SocketAddr::new(Ipv4Addr::new(224, 0, 0, 251).into(), MDNS_PORT));
-/// link-local mDNS ipv6 address https://www.iana.org/assignments/ipv6-multicast-addresses/ipv6-multicast-addresses.xhtml
+/// link-local mDNS ipv6 address, see [ipv6-multicast-addresses](https://www.iana.org/assignments/ipv6-multicast-addresses/ipv6-multicast-addresses.xhtml)
 pub static MDNS_IPV6: Lazy<SocketAddr> = Lazy::new(|| {
     SocketAddr::new(
         Ipv6Addr::new(0xFF02, 0, 0, 0, 0, 0, 0, 0x00FB).into(),
@@ -300,7 +300,7 @@ impl Stream for MdnsStream {
                 let socket = Arc::clone(socket);
                 let receive_future = async {
                     let socket = socket;
-                    let mut buf = [0u8; 2048];
+                    let mut buf = [0u8; 2_048];
                     let (len, src) = socket.recv_from(&mut buf).await?;
 
                     Ok(SerialMessage::new(
@@ -388,7 +388,7 @@ impl Future for NextRandomUdpSocket {
             //
             //    The dynamic port range defined by IANA consists of the 49152-65535
             //    range, and is meant for the selection of ephemeral ports.
-            let rand_port_range = Uniform::new_inclusive(49152_u16, u16::max_value());
+            let rand_port_range = Uniform::new_inclusive(49152_u16, u16::MAX);
             let mut rand = rand::thread_rng();
 
             for attempt in 0..10 {
@@ -431,6 +431,7 @@ pub(crate) mod tests {
     use crate::xfer::dns_handle::DnsStreamHandle;
     use alloc::string::ToString;
     use futures_util::future::Either;
+    use test_support::subscribe;
     use tokio::runtime;
 
     use std::println;
@@ -447,8 +448,7 @@ pub(crate) mod tests {
     // one_shot tests are basically clones from the udp tests
     #[test]
     fn test_next_random_socket() {
-        // use env_logger;
-        // env_logger::init();
+        subscribe();
 
         let io_loop = runtime::Runtime::new().unwrap();
         let (stream, _) = MdnsStream::new(

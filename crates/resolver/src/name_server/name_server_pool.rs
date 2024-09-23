@@ -24,8 +24,6 @@ use rand::thread_rng as rng;
 use rand::Rng;
 
 use crate::config::{NameServerConfigGroup, ResolverConfig, ResolverOpts, ServerOrderingStrategy};
-#[cfg(feature = "mdns")]
-use crate::name_server;
 use crate::name_server::connection_provider::{ConnectionProvider, GenericConnector};
 use crate::name_server::name_server::NameServer;
 use crate::name_server::RuntimeProvider;
@@ -40,8 +38,6 @@ pub struct NameServerPool<P: ConnectionProvider + Send + 'static> {
     // TODO: switch to FuturesMutex (Mutex will have some undesirable locking)
     datagram_conns: Arc<[NameServer<P>]>, /* All NameServers must be the same type */
     stream_conns: Arc<[NameServer<P>]>,   /* All NameServers must be the same type */
-    #[cfg(feature = "mdns")]
-    mdns_conns: NameServer<P>, /* All NameServers must be the same type */
     options: ResolverOpts,
 }
 
@@ -79,7 +75,7 @@ where
                 #[cfg(feature = "dns-over-rustls")]
                 let ns_config = {
                     let mut ns_config = ns_config.clone();
-                    ns_config.tls_config = config.client_config().clone();
+                    ns_config.tls_config.clone_from(config.client_config());
                     ns_config
                 };
                 #[cfg(not(feature = "dns-over-rustls"))]
@@ -97,7 +93,7 @@ where
                 #[cfg(feature = "dns-over-rustls")]
                 let ns_config = {
                     let mut ns_config = ns_config.clone();
-                    ns_config.tls_config = config.client_config().clone();
+                    ns_config.tls_config.clone_from(config.client_config());
                     ns_config
                 };
                 #[cfg(not(feature = "dns-over-rustls"))]
@@ -110,8 +106,6 @@ where
         Self {
             datagram_conns: Arc::from(datagram_conns),
             stream_conns: Arc::from(stream_conns),
-            #[cfg(feature = "mdns")]
-            mdns_conns: name_server::mdns_nameserver(options, conn_provider.clone(), false),
             options,
         }
     }
@@ -136,14 +130,11 @@ where
         Self {
             datagram_conns: Arc::from(datagram_conns),
             stream_conns: Arc::from(stream_conns),
-            #[cfg(feature = "mdns")]
-            mdns_conns: name_server::mdns_nameserver(*options, conn_provider.clone(), false),
             options,
         }
     }
 
     #[doc(hidden)]
-    #[cfg(not(feature = "mdns"))]
     pub fn from_nameservers(
         options: ResolverOpts,
         datagram_conns: Vec<NameServer<P>>,
@@ -156,24 +147,7 @@ where
         }
     }
 
-    #[doc(hidden)]
-    #[cfg(feature = "mdns")]
-    pub fn from_nameservers(
-        options: ResolverOpts,
-        datagram_conns: Vec<NameServer<P>>,
-        stream_conns: Vec<NameServer<P>>,
-        mdns_conns: NameServer<P>,
-    ) -> Self {
-        GenericNameServerPool {
-            datagram_conns: Arc::from(datagram_conns),
-            stream_conns: Arc::from(stream_conns),
-            mdns_conns,
-            options,
-        }
-    }
-
     #[cfg(test)]
-    #[cfg(not(feature = "mdns"))]
     #[allow(dead_code)]
     fn from_nameservers_test(
         options: ResolverOpts,
@@ -184,22 +158,6 @@ where
             datagram_conns,
             stream_conns,
             options,
-        }
-    }
-
-    #[cfg(test)]
-    #[cfg(feature = "mdns")]
-    fn from_nameservers_test(
-        options: &ResolverOpts,
-        datagram_conns: Arc<[NameServer<P>]>,
-        stream_conns: Arc<[NameServer<P>]>,
-        mdns_conns: NameServer<P>,
-    ) -> Self {
-        GenericNameServerPool {
-            datagram_conns,
-            stream_conns,
-            mdns_conns,
-            options: *options,
         }
     }
 
@@ -237,12 +195,7 @@ where
         // TODO: remove this clone, return the Message in the error?
         let tcp_message = request.clone();
 
-        // if it's a .local. query, then we *only* query mDNS, these should never be sent on to upstream resolvers
-        #[cfg(feature = "mdns")]
-        let mdns = mdns::maybe_local(&mut self.mdns_conns, request);
-
         // TODO: limited to only when mDNS is enabled, but this should probably always be enforced?
-        #[cfg(not(feature = "mdns"))]
         let mdns = Local::NotMdns(request);
 
         // local queries are queried through mDNS
@@ -264,7 +217,7 @@ where
                         debug!("truncated response received, retrying over TCP");
                         Ok(response)
                     }
-                    Err(e) if opts.try_tcp_on_error || e.is_no_connections() => {
+                    Err(e) if (opts.try_tcp_on_error && e.is_io()) || e.is_no_connections() => {
                         debug!("error from UDP, retrying over TCP: {}", e);
                         Err(e)
                     }
@@ -310,6 +263,7 @@ where
     P: ConnectionProvider + 'static,
 {
     let mut err = ProtoError::from(ProtoErrorKind::NoConnections);
+
     // If the name server we're trying is giving us backpressure by returning ProtoErrorKind::Busy,
     // we will first try the other name servers (as for other error types). However, if the other
     // servers are also busy, we're going to wait for a little while and then retry each server that
@@ -375,46 +329,25 @@ where
             };
 
             match e.kind() {
-                ProtoErrorKind::NoRecordsFound { trusted, .. } if *trusted => {
+                ProtoErrorKind::NoRecordsFound {
+                    trusted, soa, ns, ..
+                } if *trusted || soa.is_some() || ns.is_some() => {
                     return Err(e);
                 }
                 _ if e.is_busy() => {
                     busy.push(conn);
+                }
+                // If our current error is the default err we start with, replace it with the
+                // new error under consideration. It was produced trying to make a connection
+                // and is more specific than the default.
+                _ if matches!(err.kind(), ProtoErrorKind::NoConnections) => {
+                    err = e;
                 }
                 _ if err.cmp_specificity(&e) == Ordering::Less => {
                     err = e;
                 }
                 _ => {}
             }
-        }
-    }
-}
-
-#[cfg(feature = "mdns")]
-mod mdns {
-    use super::*;
-
-    use proto::rr::domain::usage;
-    use proto::DnsHandle;
-
-    /// Returns true
-    pub(crate) fn maybe_local<C, P>(
-        name_server: &mut NameServer<C, P>,
-        request: DnsRequest,
-    ) -> Local
-    where
-        C: DnsHandle<Error = ResolveError> + 'static,
-        P: ConnectionProvider<Conn = C> + 'static,
-        P: ConnectionProvider,
-    {
-        if request
-            .queries()
-            .iter()
-            .any(|query| usage::LOCAL.name().zone_of(query.name()))
-        {
-            Local::ResolveStream(name_server.send(request))
-        } else {
-            Local::NotMdns(request)
         }
     }
 }
@@ -476,7 +409,6 @@ mod tests {
 
     use tokio::runtime::Runtime;
 
-    use hickory_proto::rr::RData;
     use proto::op::Query;
     use proto::rr::{Name, RecordType};
     use proto::xfer::{DnsHandle, DnsRequestOptions};
@@ -582,18 +514,10 @@ mod tests {
         let name_server = GenericNameServer::new(ns_config, opts.clone(), conn_provider);
         let name_servers: Arc<[_]> = Arc::from([name_server]);
 
-        #[cfg(not(feature = "mdns"))]
         let pool = GenericNameServerPool::from_nameservers_test(
             opts,
             Arc::from([]),
             Arc::clone(&name_servers),
-        );
-        #[cfg(feature = "mdns")]
-        let mut pool = GenericNameServerPool::from_nameservers_test(
-            &opts,
-            Arc::from([]),
-            Arc::clone(&name_servers),
-            name_server::mdns_nameserver(opts, TokioConnectionProvider::default(), false),
         );
 
         let name = Name::from_str("www.example.com.").unwrap();
@@ -612,9 +536,9 @@ mod tests {
         assert_eq!(
             *response.answers()[0]
                 .data()
-                .and_then(RData::as_a)
+                .as_a()
                 .expect("no a record available"),
-            Ipv4Addr::new(93, 184, 216, 34).into()
+            Ipv4Addr::new(93, 184, 215, 14).into()
         );
 
         assert!(
@@ -636,9 +560,9 @@ mod tests {
         assert_eq!(
             *response.answers()[0]
                 .data()
-                .and_then(RData::as_aaaa)
+                .as_aaaa()
                 .expect("no aaaa record available"),
-            Ipv6Addr::new(0x2606, 0x2800, 0x0220, 0x0001, 0x0248, 0x1893, 0x25c8, 0x1946).into()
+            Ipv6Addr::new(0x2606, 0x2800, 0x21f, 0xcb07, 0x6820, 0x80da, 0xaf6b, 0x8b2c).into()
         );
 
         assert!(

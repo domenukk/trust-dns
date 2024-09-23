@@ -12,10 +12,14 @@
 use core::cmp::Ordering;
 use core::fmt;
 #[cfg(feature = "std")]
+use std::sync::Arc;
+#[cfg(feature = "std")]
 use std::{io, sync};
 
+use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 #[cfg(feature = "backtrace")]
 #[cfg_attr(docsrs, doc(cfg(feature = "backtrace")))]
 pub use backtrace::Backtrace as ExtBacktrace;
@@ -28,10 +32,8 @@ use tracing::debug;
 use crate::op::{Header, Query, ResponseCode};
 
 #[cfg(feature = "dnssec")]
-use crate::rr::dnssec::rdata::tsig::TsigAlgorithm;
-use crate::rr::rdata::SOA;
-use crate::rr::resource::RecordRef;
-use crate::rr::{Name, Record, RecordType};
+use crate::rr::dnssec::{rdata::tsig::TsigAlgorithm, Proof};
+use crate::rr::{rdata::SOA, resource::RecordRef, Record, RecordType};
 use crate::serialize::binary::DecodeError;
 use crate::xfer::DnsResponse;
 
@@ -101,6 +103,16 @@ pub enum ProtoErrorKind {
         label: usize,
         /// Start of the other label
         other: usize,
+    },
+
+    /// No Records and there is a corresponding DNSSEC Proof for NSEC
+    #[cfg(feature = "dnssec")]
+    #[error("DNSSEC Negative Record Response for {query}, {proof}")]
+    Nsec {
+        /// Query for which the NSEC was returned
+        query: crate::op::Query,
+        /// DNSSEC proof of the record
+        proof: Proof,
     },
 
     /// DNS protocol version doesn't have the expected version 3
@@ -184,6 +196,9 @@ pub enum ProtoErrorKind {
         query: Box<Query>,
         /// If an SOA is present, then this is an authoritative response or a referral to another nameserver, see the negative_type field.
         soa: Option<Box<Record<SOA>>>,
+        /// Nameservers may be present in addition to or in lieu of an SOA for a referral
+        /// The tuple struct layout is vec[(Nameserver, [vec of glue records])]
+        ns: Option<Vec<ForwardNSData>>,
         /// negative ttl, as determined from DnsResponse::negative_ttl
         ///  this will only be present if the SOA was also present.
         negative_ttl: Option<u32>,
@@ -192,15 +207,6 @@ pub enum ProtoErrorKind {
         response_code: ResponseCode,
         /// If we trust `NXDOMAIN` errors from this server
         trusted: bool,
-    },
-
-    /// Missing rrsigs
-    #[error("rrsigs are not present for record set name: {name} record_type: {record_type}")]
-    RrsigsNotPresent {
-        /// The record set name
-        name: Name,
-        /// The record type
-        record_type: RecordType,
     },
 
     /// An unknown algorithm type was found
@@ -239,11 +245,15 @@ pub enum ProtoErrorKind {
     /// An error got returned from IO
     #[cfg(feature = "std")]
     #[error("io error: {0}")]
-    Io(io::Error),
+    Io(Arc<io::Error>),
 
     /// Any sync poised error
     #[error("lock poisoned error")]
     Poisoned,
+
+    /// A request was Refused due to some access check
+    #[error("request refused")]
+    RequestRefused,
 
     /// A ring error
     #[error("ring error: {0}")]
@@ -288,37 +298,47 @@ pub enum ProtoErrorKind {
     ParseInt(#[from] core::num::ParseIntError),
 
     /// A Quinn (Quic) connection error occurred
-    #[cfg(feature = "quinn")]
+    #[cfg(feature = "dns-over-quic")]
     #[error("error creating quic connection: {0}")]
     QuinnConnect(#[from] quinn::ConnectError),
 
     /// A Quinn (QUIC) connection error occurred
-    #[cfg(feature = "quinn")]
+    #[cfg(feature = "dns-over-quic")]
     #[error("error with quic connection: {0}")]
     QuinnConnection(#[from] quinn::ConnectionError),
 
     /// A Quinn (QUIC) write error occurred
-    #[cfg(feature = "quinn")]
+    #[cfg(feature = "dns-over-quic")]
     #[error("error writing to quic connection: {0}")]
     QuinnWriteError(#[from] quinn::WriteError),
 
     /// A Quinn (QUIC) read error occurred
-    #[cfg(feature = "quinn")]
+    #[cfg(feature = "dns-over-quic")]
     #[error("error writing to quic read: {0}")]
     QuinnReadError(#[from] quinn::ReadExactError),
 
+    /// A Quinn (QUIC) read error occurred
+    #[cfg(feature = "dns-over-quic")]
+    #[error("referenced a closed QUIC stream: {0}")]
+    QuinnStreamError(#[from] quinn::ClosedStream),
+
     /// A Quinn (QUIC) configuration error occurred
-    #[cfg(feature = "quinn")]
+    #[cfg(feature = "dns-over-quic")]
     #[error("error constructing quic configuration: {0}")]
     QuinnConfigError(#[from] quinn::ConfigError),
 
+    /// QUIC TLS config must include an AES-128-GCM cipher suite
+    #[cfg(feature = "dns-over-quic")]
+    #[error("QUIC TLS config must include an AES-128-GCM cipher suite")]
+    QuinnTlsConfigError(#[from] quinn::crypto::rustls::NoInitialCipherSuite),
+
     /// Unknown QUIC stream used
-    #[cfg(feature = "quinn")]
+    #[cfg(feature = "dns-over-quic")]
     #[error("an unknown quic stream was used")]
     QuinnUnknownStreamError,
 
     /// A quic message id should always be 0
-    #[cfg(feature = "quinn")]
+    #[cfg(feature = "dns-over-quic")]
     #[error("quic messages should always be 0, got: {0}")]
     QuicMessageIdNot0(u16),
 
@@ -331,6 +351,15 @@ pub enum ProtoErrorKind {
     #[cfg(all(feature = "native-certs", not(feature = "webpki-roots")))]
     #[error("no valid certificates found in the native root store")]
     NativeCerts,
+}
+
+/// Data needed to process a NS-record-based referral.
+#[derive(Clone, Debug)]
+pub struct ForwardNSData {
+    /// The referant NS record
+    pub ns: Record,
+    /// Any glue records associated with the referant NS record.
+    pub glue: Vec<Record>,
 }
 
 /// The error type for errors that get returned in the crate
@@ -350,6 +379,7 @@ impl ProtoError {
     pub fn nx_error(
         query: Query,
         soa: Option<Record<SOA>>,
+        ns: Option<Vec<ForwardNSData>>,
         negative_ttl: Option<u32>,
         response_code: ResponseCode,
         trusted: bool,
@@ -357,6 +387,7 @@ impl ProtoError {
         ProtoErrorKind::NoRecordsFound {
             query: Box::new(query),
             soa: soa.map(Box::new),
+            ns,
             negative_ttl,
             response_code,
             trusted,
@@ -381,8 +412,48 @@ impl ProtoError {
     pub fn is_no_connections(&self) -> bool {
         matches!(*self.kind, ProtoErrorKind::NoConnections)
     }
+
+    /// Returns true if the domain does not exist
+    #[inline]
+    pub fn is_nx_domain(&self) -> bool {
+        matches!(
+            *self.kind,
+            ProtoErrorKind::NoRecordsFound {
+                response_code: ResponseCode::NXDomain,
+                ..
+            }
+        )
+    }
+
+    /// Returns true if the error represents NoRecordsFound
+    #[inline]
+    pub fn is_no_records_found(&self) -> bool {
+        matches!(*self.kind, ProtoErrorKind::NoRecordsFound { .. })
+    }
+
+    /// Returns the SOA record, if the error contains one
+    #[inline]
+    pub fn into_soa(self) -> Option<Box<Record<SOA>>> {
+        match *self.kind {
+            ProtoErrorKind::NoRecordsFound { soa, .. } => soa,
+            _ => None,
+        }
+    }
+
+    /// Returns true if this is a core::io::Error
+    #[inline]
+    #[cfg(feature = "std")]
+    pub fn is_io(&self) -> bool {
+        matches!(*self.kind, ProtoErrorKind::Io(..))
+    }
+
     #[cfg(feature = "std")]
     pub(crate) fn as_dyn(&self) -> &(dyn std::error::Error + 'static) {
+        self
+    }
+
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn as_dyn(&self) -> &(dyn core::error::Error + 'static) {
         self
     }
 
@@ -415,6 +486,7 @@ impl ProtoError {
                     let query = response.queries().iter().next().cloned().unwrap_or_default();
                     let error_kind = ProtoErrorKind::NoRecordsFound {
                         query: Box::new(query),
+                        ns: None,
                         soa: soa.map(Box::new),
                         negative_ttl: None,
                         response_code: code,
@@ -435,6 +507,33 @@ impl ProtoError {
 
                     let response = response;
                     let soa = response.soa().as_ref().map(RecordRef::to_owned);
+
+                    // Collect any referral nameservers and associated glue records
+                    let mut referral_name_servers = vec![];
+                    for ns in response.name_servers().iter().filter(|ns| ns.record_type() == RecordType::NS) {
+                        let glue = response
+                            .additionals()
+                            .iter()
+                            .filter_map(|record| {
+                                if let Some(ns_data) = ns.data().as_ns() {
+                                    if *record.name() == **ns_data &&
+                                       (record.data().as_a().is_some() || record.data().as_aaaa().is_some()) {
+                                           return Some(Record::to_owned(record));
+                                       }
+                                }
+
+                                None
+                            })
+                            .collect::<Vec<Record>>();
+                        referral_name_servers.push(ForwardNSData { ns: Record::to_owned(ns), glue })
+                    }
+
+                    let option_ns = if !referral_name_servers.is_empty() {
+                        Some(referral_name_servers)
+                    } else {
+                        None
+                    };
+
                     let negative_ttl = response.negative_ttl();
                     // Note: improperly configured servers may do recursive lookups and return bad SOA
                     // records here via AS112 (blackhole-1.iana.org. etc)
@@ -445,6 +544,7 @@ impl ProtoError {
                     let error_kind = ProtoErrorKind::NoRecordsFound {
                         query: Box::new(query),
                         soa: soa.map(Box::new),
+                        ns: option_ns,
                         negative_ttl,
                         response_code: code,
                         trusted,
@@ -560,7 +660,7 @@ impl From<io::Error> for ProtoErrorKind {
     fn from(e: io::Error) -> Self {
         match e.kind() {
             io::ErrorKind::TimedOut => Self::Timeout,
-            _ => Self::Io(e),
+            _ => Self::Io(e.into()),
         }
     }
 }
@@ -625,22 +725,23 @@ impl Clone for ProtoErrorKind {
             NoRecordsFound {
                 ref query,
                 ref soa,
+                ref ns,
                 negative_ttl,
                 response_code,
                 trusted,
             } => NoRecordsFound {
                 query: query.clone(),
                 soa: soa.clone(),
+                ns: ns.clone(),
                 negative_ttl,
                 response_code,
                 trusted,
             },
-            RrsigsNotPresent {
-                ref name,
-                ref record_type,
-            } => RrsigsNotPresent {
-                name: name.clone(),
-                record_type: *record_type,
+            RequestRefused => RequestRefused,
+            #[cfg(feature = "dnssec")]
+            Nsec { ref query, proof } => Nsec {
+                query: query.clone(),
+                proof,
             },
             UnknownAlgorithmTypeValue(value) => UnknownAlgorithmTypeValue(value),
             UnknownDnsClassStr(ref value) => UnknownDnsClassStr(value.clone()),
@@ -650,14 +751,8 @@ impl Clone for ProtoErrorKind {
             UnrecognizedLabelCode(value) => UnrecognizedLabelCode(value),
             UnrecognizedNsec3Flags(flags) => UnrecognizedNsec3Flags(flags),
             UnrecognizedCsyncFlags(flags) => UnrecognizedCsyncFlags(flags),
-
-            // foreign
             #[cfg(feature = "std")]
-            Io(ref e) => Io(if let Some(raw) = e.raw_os_error() {
-                io::Error::from_raw_os_error(raw)
-            } else {
-                io::Error::from(e.kind())
-            }),
+            Io(ref e) => Io(e.clone()),
             Poisoned => Poisoned,
             Ring(ref _e) => Ring(Unspecified),
             SSL(ref e) => Msg(format!("there was an SSL error: {e}")),
@@ -670,19 +765,23 @@ impl Clone for ProtoErrorKind {
             Utf8(ref e) => Utf8(*e),
             FromUtf8(ref e) => FromUtf8(e.clone()),
             ParseInt(ref e) => ParseInt(e.clone()),
-            #[cfg(feature = "quinn")]
+            #[cfg(feature = "dns-over-quic")]
             QuinnConnect(ref e) => QuinnConnect(e.clone()),
-            #[cfg(feature = "quinn")]
+            #[cfg(feature = "dns-over-quic")]
             QuinnConnection(ref e) => QuinnConnection(e.clone()),
-            #[cfg(feature = "quinn")]
+            #[cfg(feature = "dns-over-quic")]
             QuinnWriteError(ref e) => QuinnWriteError(e.clone()),
-            #[cfg(feature = "quinn")]
+            #[cfg(feature = "dns-over-quic")]
             QuicMessageIdNot0(val) => QuicMessageIdNot0(val),
-            #[cfg(feature = "quinn")]
+            #[cfg(feature = "dns-over-quic")]
             QuinnReadError(ref e) => QuinnReadError(e.clone()),
-            #[cfg(feature = "quinn")]
+            #[cfg(feature = "dns-over-quic")]
+            QuinnStreamError(ref e) => QuinnStreamError(e.clone()),
+            #[cfg(feature = "dns-over-quic")]
             QuinnConfigError(ref e) => QuinnConfigError(e.clone()),
-            #[cfg(feature = "quinn")]
+            #[cfg(feature = "dns-over-quic")]
+            QuinnTlsConfigError(ref e) => QuinnTlsConfigError(e.clone()),
+            #[cfg(feature = "dns-over-quic")]
             QuinnUnknownStreamError => QuinnUnknownStreamError,
             #[cfg(feature = "rustls")]
             RustlsError(ref e) => RustlsError(e.clone()),
@@ -692,12 +791,12 @@ impl Clone for ProtoErrorKind {
     }
 }
 
-/// A trait marking a type which implements From<ProtoError> and
-/// std::error::Error types as well as Clone + Send
+/// A trait marking a type which implements `From<ProtoError>` and
+/// [`std::error::Error`] types as well as Clone + Send
 #[cfg(feature = "std")]
 pub trait FromProtoError: From<ProtoError> + std::error::Error + Clone {}
 /// A trait marking a type which implements `From<ProtoError>` and
-/// `core::error::Error` types as well as `Clone` + `Send`
+/// [`core::error::Error`] types as well as `Clone` + `Send`
 #[cfg(not(feature = "std"))]
 pub trait FromProtoError: From<ProtoError> + core::error::Error + Clone {}
 
@@ -706,13 +805,13 @@ impl<E> FromProtoError for E where E: From<ProtoError> + std::error::Error + Clo
 #[cfg(not(feature = "std"))]
 impl<E> FromProtoError for E where E: From<ProtoError> + core::error::Error + Clone {}
 
-#[cfg(not(feature = "openssl"))]
+#[cfg(not(any(feature = "dns-over-openssl", feature = "dnssec-openssl")))]
 use self::not_openssl::SslErrorStack;
-#[cfg(not(feature = "ring"))]
+#[cfg(not(feature = "dnssec-ring"))]
 use self::not_ring::{KeyRejected, Unspecified};
-#[cfg(feature = "openssl")]
+#[cfg(any(feature = "dns-over-openssl", feature = "dnssec-openssl"))]
 use openssl::error::ErrorStack as SslErrorStack;
-#[cfg(feature = "ring")]
+#[cfg(feature = "dnssec-ring")]
 use ring::error::{KeyRejected, Unspecified};
 
 /// An alias for dnssec results returned by functions of this crate
@@ -853,8 +952,11 @@ impl From<SslErrorStack> for DnsSecError {
 
 #[doc(hidden)]
 #[allow(unreachable_pub)]
-#[cfg(not(feature = "openssl"))]
-#[cfg_attr(docsrs, doc(cfg(not(feature = "openssl"))))]
+#[cfg(not(any(feature = "dns-over-openssl", feature = "dnssec-openssl")))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(not(any(feature = "dns-over-openssl", feature = "dnssec-openssl"))))
+)]
 pub mod not_openssl {
     #[derive(Clone, Copy, Debug)]
     pub struct SslErrorStack;
@@ -882,10 +984,10 @@ pub mod not_openssl {
 
 #[doc(hidden)]
 #[allow(unreachable_pub)]
-#[cfg(not(feature = "ring"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "ring")))]
+#[cfg(not(feature = "dnssec-ring"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "dnssec-ring")))]
 pub mod not_ring {
-    #[cfg(all(feature = "unstable", not(feature = "std")))]
+    #[cfg(not(feature = "std"))]
     use core::error::Error;
     #[cfg(feature = "std")]
     use std::error::Error;

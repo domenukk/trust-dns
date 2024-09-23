@@ -5,10 +5,18 @@ on:
     branches:
       - main
       - release/**
+      - "*_dev"
+    # does not work properly due to an issue in GitHub's branch protection
+    # rules: https://github.com/orgs/community/discussions/13690
+    # paths-ignore:
+    #   - "conformance/**"
   pull_request:
     branches:
       - main
       - release/**
+    # paths-ignore:
+    #   - "conformance/**"
+  merge_group:
   schedule:
     - cron: "0 3 * * 4"
 
@@ -29,10 +37,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: extractions/setup-just@v1
+      - uses: extractions/setup-just@v2
 
       - name: cargo install cargo-workspaces
-        uses: baptiste0928/cargo-install@v2
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-workspaces
           version: ${{ env.CARGO_WS_VERSION }}
@@ -40,7 +48,7 @@ jobs:
       - name: just all-features
         run: just all-features
 
-  ## Run all default oriented feature sets across all platforms.
+  ## Measure test coverage, only on linux.
   code-coverage:
     name: coverage
     needs: platform-matrix
@@ -52,10 +60,10 @@ jobs:
         with:
           components: llvm-tools-preview
 
-      - uses: extractions/setup-just@v1
+      - uses: extractions/setup-just@v2
 
       - name: cargo install cargo-llvm-cov
-        uses: baptiste0928/cargo-install@v2
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-llvm-cov
 
@@ -63,7 +71,7 @@ jobs:
         run: just coverage
 
       - name: upload coverage
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
@@ -96,10 +104,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: extractions/setup-just@v1
+      - uses: extractions/setup-just@v2
 
       - name: cargo install cargo-workspaces
-        uses: baptiste0928/cargo-install@v2
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-workspaces
           version: ${{ env.CARGO_WS_VERSION }}
@@ -116,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        version: ["1.67.0", beta, nightly]
+        version: ["1.70.0", beta, "nightly-2024-05-23"]
     steps:
       - uses: actions/checkout@v4
 
@@ -124,10 +132,10 @@ jobs:
         with:
           toolchain: ${{ matrix.version }}
 
-      - uses: extractions/setup-just@v1
+      - uses: extractions/setup-just@v2
 
       - name: cargo install cargo-workspaces
-        uses: baptiste0928/cargo-install@v2
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-workspaces
           version: ${{ env.CARGO_WS_VERSION }}
@@ -136,7 +144,7 @@ jobs:
         run: just no-default-features
 
       - name: just build-bench
-        if: matrix.version == 'nightly'
+        if: contains( matrix.version, 'nightly' )
         run: just build-bench
 
   ## Execute the clippy checks
@@ -148,7 +156,7 @@ jobs:
 
       # not using the cargo cache here, since this differs significantly
       - name: cargo-all cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cargo
           key: ${{ runner.os }}-cargo-all-${{ hashFiles('**/Cargo.toml') }}-${{ hashFiles('**/Cargo.lock') }}
@@ -162,10 +170,10 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      - uses: extractions/setup-just@v1
+      - uses: extractions/setup-just@v2
 
       - name: cargo install cargo-workspaces
-        uses: baptiste0928/cargo-install@v2
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-workspaces
           version: ${{ env.CARGO_WS_VERSION }}
@@ -191,10 +199,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: extractions/setup-just@v1
+      - uses: extractions/setup-just@v2
 
       - name: target/bind cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: target/bind
           key: ${{ runner.os }}-bind-${{ hashFiles('**/justfile') }}

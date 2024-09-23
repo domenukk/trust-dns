@@ -16,17 +16,20 @@ use std::{
 
 use tracing::{debug, info};
 
-#[cfg(feature = "dnssec")]
 use crate::{
-    authority::DnssecAuthority,
-    proto::rr::dnssec::{rdata::key::KEY, DnsSecResult, SigSigner},
-};
-use crate::{
-    authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
+    authority::{
+        Authority, LookupControlFlow, LookupOptions, MessageRequest, UpdateResult, ZoneType,
+    },
     proto::rr::{LowerName, Name, RecordSet, RecordType, RrKey},
     proto::serialize::txt::Parser,
     server::RequestInfo,
     store::{file::FileConfig, in_memory::InMemoryAuthority},
+};
+#[cfg(feature = "dnssec")]
+use crate::{
+    authority::{DnssecAuthority, Nsec3QueryInfo},
+    config::dnssec::NxProofKind,
+    proto::rr::dnssec::{rdata::key::KEY, DnsSecResult, SigSigner},
 };
 
 /// FileAuthority is responsible for storing the resource records for a particular zone.
@@ -56,8 +59,17 @@ impl FileAuthority {
         records: BTreeMap<RrKey, RecordSet>,
         zone_type: ZoneType,
         allow_axfr: bool,
+        #[cfg(feature = "dnssec")] nx_proof_kind: Option<NxProofKind>,
     ) -> Result<Self, String> {
-        InMemoryAuthority::new(origin, records, zone_type, allow_axfr).map(Self)
+        InMemoryAuthority::new(
+            origin,
+            records,
+            zone_type,
+            allow_axfr,
+            #[cfg(feature = "dnssec")]
+            nx_proof_kind,
+        )
+        .map(Self)
     }
 
     /// Read the Authority for the origin from the specified configuration
@@ -67,6 +79,7 @@ impl FileAuthority {
         allow_axfr: bool,
         root_dir: Option<&Path>,
         config: &FileConfig,
+        #[cfg(feature = "dnssec")] nx_proof_kind: Option<NxProofKind>,
     ) -> Result<Self, String> {
         let root_dir_path = root_dir.map(PathBuf::from).unwrap_or_default();
         let zone_path = root_dir_path.join(&config.zone_file_path);
@@ -89,7 +102,14 @@ impl FileAuthority {
         );
         debug!("zone: {:#?}", records);
 
-        Self::new(origin, records, zone_type, allow_axfr)
+        Self::new(
+            origin,
+            records,
+            zone_type,
+            allow_axfr,
+            #[cfg(feature = "dnssec")]
+            nx_proof_kind,
+        )
     }
 
     /// Unwrap the InMemoryAuthority
@@ -156,7 +176,7 @@ impl Authority for FileAuthority {
         name: &LowerName,
         rtype: RecordType,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         self.0.lookup(name, rtype, lookup_options).await
     }
 
@@ -175,12 +195,12 @@ impl Authority for FileAuthority {
         &self,
         request_info: RequestInfo<'_>,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         self.0.search(request_info, lookup_options).await
     }
 
     /// Get the NS, NameServer, record for the zone
-    async fn ns(&self, lookup_options: LookupOptions) -> Result<Self::Lookup, LookupError> {
+    async fn ns(&self, lookup_options: LookupOptions) -> LookupControlFlow<Self::Lookup> {
         self.0.ns(lookup_options).await
     }
 
@@ -195,21 +215,35 @@ impl Authority for FileAuthority {
         &self,
         name: &LowerName,
         lookup_options: LookupOptions,
-    ) -> Result<Self::Lookup, LookupError> {
+    ) -> LookupControlFlow<Self::Lookup> {
         self.0.get_nsec_records(name, lookup_options).await
+    }
+
+    #[cfg(feature = "dnssec")]
+    async fn get_nsec3_records(
+        &self,
+        info: Nsec3QueryInfo<'_>,
+        lookup_options: LookupOptions,
+    ) -> LookupControlFlow<Self::Lookup> {
+        self.0.get_nsec3_records(info, lookup_options).await
     }
 
     /// Returns the SOA of the authority.
     ///
     /// *Note*: This will only return the SOA, if this is fulfilling a request, a standard lookup
     ///  should be used, see `soa_secure()`, which will optionally return RRSIGs.
-    async fn soa(&self) -> Result<Self::Lookup, LookupError> {
+    async fn soa(&self) -> LookupControlFlow<Self::Lookup> {
         self.0.soa().await
     }
 
     /// Returns the SOA record for the zone
-    async fn soa_secure(&self, lookup_options: LookupOptions) -> Result<Self::Lookup, LookupError> {
+    async fn soa_secure(&self, lookup_options: LookupOptions) -> LookupControlFlow<Self::Lookup> {
         self.0.soa_secure(lookup_options).await
+    }
+
+    #[cfg(feature = "dnssec")]
+    fn nx_proof_kind(&self) -> Option<&NxProofKind> {
+        self.0.nx_proof_kind()
     }
 }
 
@@ -260,6 +294,8 @@ mod tests {
             false,
             None,
             &config,
+            #[cfg(feature = "dnssec")]
+            Some(NxProofKind::Nsec),
         )
         .expect("failed to load file");
 
@@ -277,7 +313,7 @@ mod tests {
             .expect("A record not found in authority")
             .data()
         {
-            Some(RData::A(ip)) => assert_eq!(A::new(127, 0, 0, 1), *ip),
+            RData::A(ip) => assert_eq!(A::new(127, 0, 0, 1), *ip),
             _ => panic!("wrong rdata type returned"),
         }
 
@@ -295,7 +331,7 @@ mod tests {
             .expect("A record not found in authority")
             .data()
         {
-            Some(RData::A(ip)) => assert_eq!(A::new(127, 0, 0, 5), *ip),
+            RData::A(ip) => assert_eq!(A::new(127, 0, 0, 5), *ip),
             _ => panic!("wrong rdata type returned"),
         }
     }

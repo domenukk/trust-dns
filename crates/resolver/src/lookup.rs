@@ -26,6 +26,7 @@ use crate::{
     caching_client::CachingClient,
     dns_lru::MAX_TTL,
     error::*,
+    hosts::Hosts,
     lookup_ip::LookupIpIter,
     name_server::{ConnectionProvider, NameServerPool},
     proto::{
@@ -41,7 +42,7 @@ use crate::{
 };
 
 #[cfg(feature = "dnssec")]
-use proto::DnssecDnsHandle;
+use proto::{rr::dnssec::Proven, DnssecDnsHandle};
 
 /// Result of a DNS query when querying for any record type supported by the Hickory DNS Proto library.
 ///
@@ -84,14 +85,28 @@ impl Lookup {
         &self.query
     }
 
-    /// Returns a borrowed iterator of the returned IPs
+    /// Returns an iterator over the matching the queried record type.
     pub fn iter(&self) -> LookupIter<'_> {
         LookupIter(self.records.iter())
     }
 
-    /// Returns a borrowed iterator of the returned IPs
+    /// Returns a borrowed iterator of the returned data wrapped in a dnssec Proven type
+    #[cfg(feature = "dnssec")]
+    pub fn dnssec_iter(&self) -> DnssecIter<'_> {
+        DnssecIter(self.dnssec_record_iter())
+    }
+
+    /// Returns an iterator over all records returned during the query.
+    ///
+    /// It may include additional record types beyond the queried type, e.g. CNAME.
     pub fn record_iter(&self) -> LookupRecordIter<'_> {
         LookupRecordIter(self.records.iter())
+    }
+
+    /// Returns a borrowed iterator of the returned records wrapped in a dnssec Proven type
+    #[cfg(feature = "dnssec")]
+    pub fn dnssec_record_iter(&self) -> DnssecLookupRecordIter<'_> {
+        DnssecLookupRecordIter(self.records.iter())
     }
 
     /// Returns the `Instant` at which this `Lookup` is no longer valid.
@@ -108,7 +123,8 @@ impl Lookup {
         self.records.len()
     }
 
-    /// Returns the records list
+    /// Returns an slice over all records that were returned during the query, this can include
+    ///   additional record types beyond the queried type, e.g. CNAME.
     pub fn records(&self) -> &[Record] {
         self.records.as_ref()
     }
@@ -123,6 +139,14 @@ impl Lookup {
         let valid_until = min(self.valid_until(), other.valid_until());
         Self::new_with_deadline(self.query.clone(), Arc::from(records), valid_until)
     }
+
+    /// Add new records to this lookup, without creating a new Lookup
+    pub fn extend_records(&mut self, other: Vec<Record>) {
+        let mut records = Vec::with_capacity(self.len() + other.len());
+        records.extend_from_slice(&self.records);
+        records.extend(other);
+        self.records = Arc::from(records);
+    }
 }
 
 /// Borrowed view of set of [`RData`]s returned from a Lookup
@@ -132,7 +156,21 @@ impl<'a> Iterator for LookupIter<'a> {
     type Item = &'a RData;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().and_then(Record::data)
+        self.0.next().map(Record::data)
+    }
+}
+
+/// An iterator over record data with all data wrapped in a Proven type for dnssec validation
+#[cfg(feature = "dnssec")]
+pub struct DnssecIter<'a>(DnssecLookupRecordIter<'a>);
+
+#[cfg(feature = "dnssec")]
+
+impl<'a> Iterator for DnssecIter<'a> {
+    type Item = Proven<&'a RData>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|r| r.map(Record::data))
     }
 }
 
@@ -144,6 +182,20 @@ impl<'a> Iterator for LookupRecordIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
+    }
+}
+
+/// An iterator over record data with all data wrapped in a Proven type for dnssec validation
+#[cfg(feature = "dnssec")]
+pub struct DnssecLookupRecordIter<'a>(Iter<'a, Record>);
+
+#[cfg(feature = "dnssec")]
+
+impl<'a> Iterator for DnssecLookupRecordIter<'a> {
+    type Item = Proven<&'a Record>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(Proven::from)
     }
 }
 
@@ -175,7 +227,7 @@ impl Iterator for LookupIntoIter {
     type Item = RData;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let rdata = self.records.get(self.index).and_then(Record::data);
+        let rdata = self.records.get(self.index).map(Record::data);
         self.index += 1;
         rdata.cloned()
     }
@@ -237,19 +289,45 @@ where
     /// * `client_cache` - cache with a connection to use for performing all lookups
     #[doc(hidden)]
     pub fn lookup(
+        names: Vec<Name>,
+        record_type: RecordType,
+        options: DnsRequestOptions,
+        client_cache: CachingClient<C>,
+    ) -> Self {
+        Self::lookup_with_hosts(names, record_type, options, client_cache, None)
+    }
+
+    /// Perform a lookup from a name and type to a set of RDatas, taking the local
+    /// hosts file into account.
+    ///
+    /// # Arguments
+    ///
+    /// * `names` - a set of DNS names to attempt to resolve, they will be attempted in queue order, i.e. the first is `names.pop()`. Upon each failure, the next will be attempted.
+    /// * `record_type` - type of record being sought
+    /// * `client_cache` - cache with a connection to use for performing all lookups
+    /// * `hosts` - the local host file, the records inside it will be prioritized over the upstream DNS server
+    #[doc(hidden)]
+    pub fn lookup_with_hosts(
         mut names: Vec<Name>,
         record_type: RecordType,
         options: DnsRequestOptions,
         mut client_cache: CachingClient<C>,
+        hosts: Option<Arc<Hosts>>,
     ) -> Self {
         let name = names.pop().ok_or_else(|| {
             ResolveError::from(ResolveErrorKind::Message("can not lookup for no names"))
         });
 
         let query: Pin<Box<dyn Future<Output = Result<Lookup, ResolveError>> + Send>> = match name {
-            Ok(name) => client_cache
-                .lookup(Query::query(name, record_type), options)
-                .boxed(),
+            Ok(name) => {
+                let query = Query::query(name, record_type);
+
+                if let Some(lookup) = hosts.and_then(|h| h.lookup_static_host(&query)) {
+                    future::ok(lookup).boxed()
+                } else {
+                    client_cache.lookup(query, options).boxed()
+                }
+            }
             Err(err) => future::err(err).boxed(),
         };
 
@@ -357,11 +435,10 @@ impl<'i> Iterator for SrvLookupIter<'i> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let iter: &mut _ = &mut self.0;
-        iter.filter_map(|rdata| match *rdata {
+        iter.find_map(|rdata| match *rdata {
             RData::SRV(ref data) => Some(data),
             _ => None,
         })
-        .next()
     }
 }
 
@@ -384,11 +461,10 @@ impl Iterator for SrvLookupIntoIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         let iter: &mut _ = &mut self.0;
-        iter.filter_map(|rdata| match rdata {
+        iter.find_map(|rdata| match rdata {
             RData::SRV(data) => Some(data),
             _ => None,
         })
-        .next()
     }
 }
 
@@ -400,7 +476,7 @@ macro_rules! lookup_type {
         pub struct $l(Lookup);
 
         impl $l {
-            /// Returns an iterator over the RData
+            #[doc = stringify!(Returns an iterator over the records that match $r)]
             pub fn iter(&self) -> $i<'_> {
                 $i(self.0.iter())
             }
@@ -443,11 +519,10 @@ macro_rules! lookup_type {
 
             fn next(&mut self) -> Option<Self::Item> {
                 let iter: &mut _ = &mut self.0;
-                iter.filter_map(|rdata| match *rdata {
+                iter.find_map(|rdata| match *rdata {
                     $r(ref data) => Some(data),
                     _ => None,
                 })
-                .next()
             }
         }
 
@@ -470,11 +545,10 @@ macro_rules! lookup_type {
 
             fn next(&mut self) -> Option<Self::Item> {
                 let iter: &mut _ = &mut self.0;
-                iter.filter_map(|rdata| match rdata {
+                iter.find_map(|rdata| match rdata {
                     $r(data) => Some(data),
                     _ => None,
                 })
-                .next()
             }
         }
     };
@@ -516,6 +590,13 @@ lookup_type!(
     TxtLookupIntoIter,
     RData::TXT,
     rdata::TXT
+);
+lookup_type!(
+    CertLookup,
+    CertLookupIter,
+    CertLookupIntoIter,
+    RData::CERT,
+    rdata::CERT
 );
 lookup_type!(
     SoaLookup,
@@ -619,7 +700,6 @@ pub mod tests {
                 .unwrap()
                 .records()[0]
             )
-            .unwrap()
             .ip_addr()
             .unwrap(),
             Ipv4Addr::new(127, 0, 0, 1)
@@ -698,6 +778,44 @@ pub mod tests {
 
         assert_eq!(lookup.next().unwrap(), RData::A(A::new(127, 0, 0, 1)));
         assert_eq!(lookup.next().unwrap(), RData::A(A::new(127, 0, 0, 2)));
+        assert_eq!(lookup.next(), None);
+    }
+
+    #[test]
+    #[cfg(feature = "dnssec")]
+    fn test_dnssec_lookup() {
+        use hickory_proto::rr::dnssec::Proof;
+
+        let mut a1 = Record::from_rdata(
+            Name::from_str("www.example.com.").unwrap(),
+            80,
+            RData::A(A::new(127, 0, 0, 1)),
+        );
+        a1.set_proof(Proof::Secure);
+
+        let mut a2 = Record::from_rdata(
+            Name::from_str("www.example.com.").unwrap(),
+            80,
+            RData::A(A::new(127, 0, 0, 2)),
+        );
+        a2.set_proof(Proof::Insecure);
+
+        let lookup = Lookup {
+            query: Query::default(),
+            records: Arc::from([a1.clone(), a2.clone()]),
+            valid_until: Instant::now(),
+        };
+
+        let mut lookup = lookup.dnssec_iter();
+
+        assert_eq!(
+            *lookup.next().unwrap().require(Proof::Secure).unwrap(),
+            *a1.data()
+        );
+        assert_eq!(
+            *lookup.next().unwrap().require(Proof::Insecure).unwrap(),
+            *a2.data()
+        );
         assert_eq!(lookup.next(), None);
     }
 }

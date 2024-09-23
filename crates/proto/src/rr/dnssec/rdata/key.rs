@@ -8,10 +8,10 @@
 //! public key record data for signing zone records
 #![allow(clippy::use_self)]
 
-use std::fmt;
-
 use alloc::vec::Vec;
-#[cfg(feature = "serde-config")]
+use core::fmt;
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -159,7 +159,7 @@ use super::DNSSECRData;
 ///               6 and 7 above) always have authority to sign any RRs in
 ///               the zone regardless of the value of the signatory field.
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct KEY {
     key_trust: KeyTrust,
@@ -171,7 +171,7 @@ pub struct KEY {
 }
 
 /// Specifies in what contexts this key may be trusted for use
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum KeyTrust {
     /// Use of the key is prohibited for authentication
@@ -244,7 +244,7 @@ fn test_key_trust() {
 
 /// Declares what this key is for
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub enum KeyUsage {
     /// key associated with a "user" or "account" at an end entity, usually a host
     Host,
@@ -404,7 +404,7 @@ fn test_key_usage() {
 ///
 /// ```
 #[deprecated = "Deprecated by RFC3007"]
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, Default, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct UpdateScope {
     /// this key is authorized to attach,
@@ -561,7 +561,7 @@ fn test_update_scope() {
 /// ```text
 /// All Protocol Octet values except DNSSEC (3) are eliminated
 /// ```
-#[cfg_attr(feature = "serde-config", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Protocol {
     /// Not in use
@@ -954,7 +954,7 @@ mod tests {
         let restrict = Restrict::new(bytes.len() as u16);
         let read_rdata = KEY::read_data(&mut decoder, restrict).expect("Decoding error");
         assert_eq!(rdata, read_rdata);
-        // #[cfg(any(feature = "openssl", feature = "ring"))]
+        // #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
         // assert!(rdata
         //             .to_digest(&Name::parse("www.example.com.", None).unwrap(),
         //                        DigestType::SHA256)

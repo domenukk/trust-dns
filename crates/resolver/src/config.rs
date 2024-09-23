@@ -20,7 +20,7 @@ use proto::rr::Name;
 #[cfg(feature = "dns-over-rustls")]
 use rustls::ClientConfig;
 
-#[cfg(all(feature = "serde-config", feature = "dns-over-rustls"))]
+#[cfg(all(feature = "serde", feature = "dns-over-rustls"))]
 use serde::{
     de::{Deserialize as DeserializeT, Deserializer},
     ser::{Serialize as SerializeT, Serializer},
@@ -28,13 +28,13 @@ use serde::{
 
 /// Configuration for the upstream nameservers to use for resolution
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde-config", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ResolverConfig {
     // base search domain
-    #[cfg_attr(feature = "serde-config", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default))]
     domain: Option<Name>,
     // search domains
-    #[cfg_attr(feature = "serde-config", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default))]
     search: Vec<Name>,
     // nameservers to use for resolution.
     name_servers: NameServerConfigGroup,
@@ -86,8 +86,8 @@ impl ResolverConfig {
     /// Please see Google's [privacy statement](https://developers.google.com/speed/public-dns/privacy) for important information about what they track, many ISP's track similar information in DNS. To use the system configuration see: `Resolver::from_system_conf` and `AsyncResolver::from_system_conf`
     ///
     /// NameServerConfigGroups can be combined to use a set of different providers, see `NameServerConfigGroup` and `ResolverConfig::from_parts`
-    #[cfg(feature = "dns-over-https")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+    #[cfg(feature = "dns-over-https-rustls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
     pub fn google_https() -> Self {
         Self {
             // TODO: this should get the hostname and use the basename as the default
@@ -148,8 +148,8 @@ impl ResolverConfig {
     /// Please see: <https://www.cloudflare.com/dns/>
     ///
     /// NameServerConfigGroups can be combined to use a set of different providers, see `NameServerConfigGroup` and `ResolverConfig::from_parts`
-    #[cfg(feature = "dns-over-https")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+    #[cfg(feature = "dns-over-https-rustls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
     pub fn cloudflare_https() -> Self {
         Self {
             // TODO: this should get the hostname and use the basename as the default
@@ -194,8 +194,8 @@ impl ResolverConfig {
     /// Please see: <https://www.quad9.net/faq/>
     ///
     /// NameServerConfigGroups can be combined to use a set of different providers, see `NameServerConfigGroup` and `ResolverConfig::from_parts`
-    #[cfg(feature = "dns-over-https")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+    #[cfg(feature = "dns-over-https-rustls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
     pub fn quad9_https() -> Self {
         Self {
             // TODO: this should get the hostname and use the basename as the default
@@ -273,26 +273,16 @@ impl ResolverConfig {
     /// ```
     /// use std::sync::Arc;
     ///
-    /// use rustls::{ClientConfig, ProtocolVersion, RootCertStore, OwnedTrustAnchor};
+    /// use rustls::{ClientConfig, ProtocolVersion, RootCertStore};
     /// use hickory_resolver::config::ResolverConfig;
     /// # #[cfg(feature = "webpki-roots")]
     /// use webpki_roots;
     ///
     /// let mut root_store = RootCertStore::empty();
     /// # #[cfg(feature = "webpki-roots")]
-    /// root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-    ///     OwnedTrustAnchor::from_subject_spki_name_constraints(
-    ///         ta.subject,
-    ///         ta.spki,
-    ///         ta.name_constraints,
-    ///     )
-    /// }));
+    /// root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     ///
     /// let mut client_config = ClientConfig::builder()
-    ///     .with_safe_default_cipher_suites()
-    ///     .with_safe_default_kx_groups()
-    ///     .with_protocol_versions(&[&rustls::version::TLS12])
-    ///     .unwrap()
     ///     .with_root_certificates(root_store)
     ///     .with_no_client_auth();
     ///
@@ -318,7 +308,7 @@ impl Default for ResolverConfig {
 /// The protocol on which a NameServer should be communicated with
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(
-    feature = "serde-config",
+    feature = "serde",
     derive(Serialize, Deserialize),
     serde(rename_all = "lowercase")
 )]
@@ -333,8 +323,8 @@ pub enum Protocol {
     #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-tls")))]
     Tls,
     /// Https for DNS over HTTPS
-    #[cfg(feature = "dns-over-https")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+    #[cfg(feature = "dns-over-https-rustls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
     Https,
     /// QUIC for DNS over QUIC
     #[cfg(feature = "dns-over-quic")]
@@ -344,10 +334,6 @@ pub enum Protocol {
     #[cfg(feature = "dns-over-h3")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-h3")))]
     H3,
-    /// mDNS protocol for performing multicast lookups
-    #[cfg(feature = "mdns")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "mdns")))]
-    Mdns,
 }
 
 impl fmt::Display for Protocol {
@@ -357,14 +343,12 @@ impl fmt::Display for Protocol {
             Self::Tcp => "tcp",
             #[cfg(feature = "dns-over-tls")]
             Self::Tls => "tls",
-            #[cfg(feature = "dns-over-https")]
+            #[cfg(feature = "dns-over-https-rustls")]
             Self::Https => "https",
             #[cfg(feature = "dns-over-quic")]
             Self::Quic => "quic",
             #[cfg(feature = "dns-over-h3")]
             Self::H3 => "h3",
-            #[cfg(feature = "mdns")]
-            Self::Mdns => "mdns",
         };
 
         f.write_str(protocol)
@@ -379,15 +363,13 @@ impl Protocol {
             Self::Tcp => false,
             #[cfg(feature = "dns-over-tls")]
             Self::Tls => false,
-            #[cfg(feature = "dns-over-https")]
+            #[cfg(feature = "dns-over-https-rustls")]
             Self::Https => false,
             // TODO: if you squint, this is true...
             #[cfg(feature = "dns-over-quic")]
             Self::Quic => true,
             #[cfg(feature = "dns-over-h3")]
             Self::H3 => true,
-            #[cfg(feature = "mdns")]
-            Self::Mdns => true,
         }
     }
 
@@ -403,14 +385,12 @@ impl Protocol {
             Self::Tcp => false,
             #[cfg(feature = "dns-over-tls")]
             Self::Tls => true,
-            #[cfg(feature = "dns-over-https")]
+            #[cfg(feature = "dns-over-https-rustls")]
             Self::Https => true,
             #[cfg(feature = "dns-over-quic")]
             Self::Quic => true,
             #[cfg(feature = "dns-over-h3")]
             Self::H3 => true,
-            #[cfg(feature = "mdns")]
-            Self::Mdns => false,
         }
     }
 }
@@ -448,15 +428,19 @@ impl std::fmt::Debug for TlsClientConfig {
 
 /// Configuration for the NameServer
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde-config", derive(Serialize, Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(deny_unknown_fields)
+)]
 pub struct NameServerConfig {
     /// The address which the DNS NameServer is registered at.
     pub socket_addr: SocketAddr,
     /// The protocol to use when communicating with the NameServer.
-    #[cfg_attr(feature = "serde-config", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub protocol: Protocol,
     /// SPKI name, only relevant for TLS connections
-    #[cfg_attr(feature = "serde-config", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub tls_dns_name: Option<String>,
     /// Whether to trust `NXDOMAIN` responses from upstream nameservers.
     ///
@@ -470,11 +454,11 @@ pub struct NameServerConfig {
     /// configuration setting.)
     ///
     /// Defaults to false.
-    #[cfg_attr(feature = "serde-config", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub trust_negative_responses: bool,
     #[cfg(feature = "dns-over-rustls")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-rustls")))]
-    #[cfg_attr(feature = "serde-config", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(skip))]
     /// Optional configuration for the TLS client.
     ///
     /// The correct ALPN for the corresponding protocol is automatically
@@ -514,7 +498,7 @@ impl fmt::Display for NameServerConfig {
 /// A set of name_servers to associate with a [`ResolverConfig`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(
-    all(feature = "serde-config", not(feature = "dns-over-rustls")),
+    all(feature = "serde", not(feature = "dns-over-rustls")),
     derive(Serialize, Deserialize)
 )]
 pub struct NameServerConfigGroup(
@@ -522,7 +506,7 @@ pub struct NameServerConfigGroup(
     #[cfg(feature = "dns-over-rustls")] Option<TlsClientConfig>,
 );
 
-#[cfg(all(feature = "serde-config", feature = "dns-over-rustls"))]
+#[cfg(all(feature = "serde", feature = "dns-over-rustls"))]
 impl SerializeT for NameServerConfigGroup {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -532,7 +516,7 @@ impl SerializeT for NameServerConfigGroup {
     }
 }
 
-#[cfg(all(feature = "serde-config", feature = "dns-over-rustls"))]
+#[cfg(all(feature = "serde", feature = "dns-over-rustls"))]
 impl<'de> DeserializeT<'de> for NameServerConfigGroup {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -598,7 +582,7 @@ impl NameServerConfigGroup {
         name_servers
     }
 
-    #[cfg(any(feature = "dns-over-tls", feature = "dns-over-https"))]
+    #[cfg(any(feature = "dns-over-tls", feature = "dns-over-https-rustls"))]
     fn from_ips_encrypted(
         ips: &[IpAddr],
         port: u16,
@@ -650,8 +634,8 @@ impl NameServerConfigGroup {
     /// Configure a NameServer address and port for DNS-over-HTTPS
     ///
     /// This will create a HTTPS connections.
-    #[cfg(feature = "dns-over-https")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+    #[cfg(feature = "dns-over-https-rustls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
     pub fn from_ips_https(
         ips: &[IpAddr],
         port: u16,
@@ -726,8 +710,8 @@ impl NameServerConfigGroup {
     /// Creates a default configuration, using `8.8.8.8`, `8.8.4.4` and `2001:4860:4860::8888`, `2001:4860:4860::8844` (thank you, Google). This limits the registered connections to just HTTPS lookups
     ///
     /// Please see Google's [privacy statement](https://developers.google.com/speed/public-dns/privacy) for important information about what they track, many ISP's track similar information in DNS. To use the system configuration see: `Resolver::from_system_conf` and `AsyncResolver::from_system_conf`
-    #[cfg(feature = "dns-over-https")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+    #[cfg(feature = "dns-over-https-rustls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
     pub fn google_https() -> Self {
         Self::from_ips_https(GOOGLE_IPS, 443, "dns.google".to_string(), true)
     }
@@ -760,8 +744,8 @@ impl NameServerConfigGroup {
     /// Creates a configuration, using `1.1.1.1`, `1.0.0.1` and `2606:4700:4700::1111`, `2606:4700:4700::1001` (thank you, Cloudflare). This limits the registered connections to just HTTPS lookups
     ///
     /// Please see: <https://www.cloudflare.com/dns/>
-    #[cfg(feature = "dns-over-https")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+    #[cfg(feature = "dns-over-https-rustls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
     pub fn cloudflare_https() -> Self {
         Self::from_ips_https(CLOUDFLARE_IPS, 443, "cloudflare-dns.com".to_string(), true)
     }
@@ -785,8 +769,8 @@ impl NameServerConfigGroup {
     /// Creates a configuration, using `9.9.9.9`, `149.112.112.112` and `2620:fe::fe`, `2620:fe::fe:9`, the "secure" variants of the quad9 settings. This limits the registered connections to just HTTPS lookups
     ///
     /// Please see: <https://www.quad9.net/faq/>
-    #[cfg(feature = "dns-over-https")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https")))]
+    #[cfg(feature = "dns-over-https-rustls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "dns-over-https-rustls")))]
     pub fn quad9_https() -> Self {
         Self::from_ips_https(QUAD9_IPS, 443, "dns.quad9.net".to_string(), true)
     }
@@ -813,6 +797,21 @@ impl NameServerConfigGroup {
         #[cfg(feature = "dns-over-rustls")]
         {
             self.0.append(&mut other);
+        }
+    }
+
+    /// Append nameservers to a NameServerConfigGroup.
+    pub fn append_ips(
+        &mut self,
+        nameserver_ips: impl Iterator<Item = IpAddr>,
+        trust_negative_response: bool,
+    ) {
+        for ip in nameserver_ips {
+            for proto in [Protocol::Udp, Protocol::Tcp] {
+                let mut config = NameServerConfig::new(SocketAddr::from((ip, 53)), proto);
+                config.trust_negative_responses = trust_negative_response;
+                self.push(config);
+            }
         }
     }
 
@@ -866,7 +865,7 @@ impl From<Vec<NameServerConfig>> for NameServerConfigGroup {
 
 /// The lookup ip strategy
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde-config", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum LookupIpStrategy {
     /// Only query for A (Ipv4) records
     Ipv4Only,
@@ -889,7 +888,7 @@ impl Default for LookupIpStrategy {
 
 /// The strategy for establishing the query order of name servers in a pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde-config", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ServerOrderingStrategy {
     /// Servers are ordered based on collected query statistics. The ordering
     /// may vary over time.
@@ -906,12 +905,27 @@ impl Default for ServerOrderingStrategy {
     }
 }
 
+/// Whether the system hosts file should be respected by the resolver.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum ResolveHosts {
+    /// Always attempt to look up IP addresses from the system hosts file.
+    /// If the hostname cannot be found, query the DNS.
+    Always,
+    /// The DNS will always be queried.
+    Never,
+    /// Use local resolver configurations only when this resolver is not used in
+    /// a DNS forwarder. This is the default.
+    #[default]
+    Auto,
+}
+
 /// Configuration for the Resolver
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(
-    feature = "serde-config",
+    feature = "serde",
     derive(Serialize, Deserialize),
-    serde(default)
+    serde(default, deny_unknown_fields)
 )]
 #[allow(missing_copy_implementations)]
 #[non_exhaustive]
@@ -937,8 +951,8 @@ pub struct ResolverOpts {
     pub ip_strategy: LookupIpStrategy,
     /// Cache size is in number of records (some records can be large)
     pub cache_size: usize,
-    /// Check /ect/hosts file before dns requery (only works for unix like OS)
-    pub use_hosts_file: bool,
+    /// Check /etc/hosts file before dns requery (only works for unix like OS)
+    pub use_hosts_file: ResolveHosts,
     /// Optional minimum TTL for positive responses.
     ///
     /// If this is set, any positive responses with a TTL lower than this value will have a TTL of
@@ -999,7 +1013,7 @@ impl Default for ResolverOpts {
             validate: false,
             ip_strategy: LookupIpStrategy::default(),
             cache_size: 32,
-            use_hosts_file: true,
+            use_hosts_file: ResolveHosts::default(),
             positive_min_ttl: None,
             negative_min_ttl: None,
             positive_max_ttl: None,

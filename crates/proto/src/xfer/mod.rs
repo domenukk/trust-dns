@@ -199,10 +199,11 @@ impl DnsHandle for BufDnsRequestStreamHandle {
 
         let (request, oneshot) = OneshotDnsRequest::oneshot(request);
         let mut sender = self.sender.clone();
-        try_oneshot!(sender.try_send(request).map_err(|_| {
+        let try_send = sender.try_send(request).map_err(|_| {
             debug!("unable to enqueue message");
             ProtoError::from(ProtoErrorKind::Busy)
-        }));
+        });
+        try_oneshot!(try_send);
 
         DnsResponseReceiver::Receiver(oneshot)
     }
@@ -248,7 +249,7 @@ impl OneshotDnsResponse {
     }
 }
 
-/// A Stream that wraps a oneshot::Receiver<Stream> and resolves to items in the inner Stream
+/// A Stream that wraps a [`oneshot::Receiver<Stream>`] and resolves to items in the inner Stream
 #[cfg(feature = "std")]
 pub enum DnsResponseReceiver {
     /// The receiver
