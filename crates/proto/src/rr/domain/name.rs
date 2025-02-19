@@ -14,9 +14,9 @@ use core::char;
 use core::cmp::{Ordering, PartialEq};
 use core::fmt::{self, Write};
 use core::hash::{Hash, Hasher};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::error::*;
+use crate::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use crate::rr::domain::label::{CaseInsensitive, CaseSensitive, IntoLabel, Label, LabelCmp};
 use crate::rr::domain::usage::LOCALHOST as LOCALHOST_usage;
 use crate::serialize::binary::*;
