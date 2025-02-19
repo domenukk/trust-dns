@@ -461,6 +461,7 @@ impl Display for RecordType {
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
 
+    #[cfg(feature = "std")]
     use std::println;
 
     use super::*;
@@ -505,6 +506,7 @@ mod tests {
 
         unordered.sort();
 
+        #[cfg(feature = "std")]
         for rtype in unordered.clone() {
             println!("u16 for {:?}: {}", rtype, u16::from(rtype));
         }

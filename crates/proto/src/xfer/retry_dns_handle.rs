@@ -136,7 +136,7 @@ impl RetryableError for ProtoError {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod test {
     use super::*;
     use crate::error::*;
