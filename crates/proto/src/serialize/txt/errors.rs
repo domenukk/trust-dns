@@ -14,7 +14,7 @@ use backtrace::Backtrace as ExtBacktrace;
 use thiserror::Error;
 
 /// An alias for parse results returned by functions of this crate
-pub type ParseResult<T> = ::std::result::Result<T, ParseError>;
+pub type ParseResult<T> = core::result::Result<T, ParseError>;
 
 /// The error kind for parse errors that get returned in the crate
 #[derive(Debug, Error)]

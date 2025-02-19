@@ -60,8 +60,15 @@ macro_rules! trace {
     }};
 }
 
+// Note that core::result::Result needs at least MSRV: 1.81.
+
 /// An alias for results returned by functions of this crate
+#[cfg(feature = "std")]
 pub(crate) type ProtoResult<T> = ::std::result::Result<T, ProtoError>;
+
+/// An alias for results returned by functions of this crate
+#[cfg(not(feature = "std"))]
+pub(crate) type ProtoResult<T> = ::core::result::Result<T, ProtoError>;
 
 /// The error kind for errors that get returned in the crate
 #[derive(Debug, EnumAsInner, Error)]
