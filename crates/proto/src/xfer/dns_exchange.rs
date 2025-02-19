@@ -7,10 +7,10 @@
 
 //! This module contains all the types for demuxing DNS oriented streams.
 
-use std::future::Future;
-use std::marker::PhantomData;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use core::future::Future;
+use core::marker::PhantomData;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 use futures_channel::mpsc;
 use futures_util::future::FutureExt;
@@ -18,13 +18,14 @@ use futures_util::stream::{Peekable, Stream, StreamExt};
 use tracing::debug;
 
 use crate::error::*;
-use crate::runtime::Time;
 use crate::xfer::dns_handle::DnsHandle;
 use crate::xfer::DnsResponseReceiver;
 use crate::xfer::{
     BufDnsRequestStreamHandle, DnsRequest, DnsRequestSender, DnsResponse, OneshotDnsRequest,
     CHANNEL_BUFFER_SIZE,
 };
+
+use crate::runtime::Time;
 
 /// This is a generic Exchange implemented over multiplexed DNS connection providers.
 ///

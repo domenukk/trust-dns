@@ -6,6 +6,7 @@
 // https://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#![no_std]
 // LIBRARY WARNINGS
 #![warn(
     clippy::default_trait_access,
@@ -29,6 +30,11 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
 //! Hickory DNS Protocol library
+
+extern crate std;
+
+#[macro_use]
+extern crate alloc;
 
 macro_rules! try_ready_stream {
     ($e:expr) => {{

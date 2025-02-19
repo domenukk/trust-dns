@@ -7,7 +7,9 @@
 
 //! pointer record from parent zone to child zone for dnskey proof
 
-use std::fmt::{self, Display, Formatter};
+use alloc::borrow::ToOwned;
+use alloc::vec::Vec;
+use core::fmt::{self, Display, Formatter};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -390,6 +392,9 @@ fn key_tag(public_key: &[u8]) -> u16 {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
+
+    use alloc::borrow::ToOwned;
+    use alloc::vec::Vec;
 
     use super::*;
     use crate::dnssec::{crypto::EcdsaSigningKey, rdata::DNSKEY, PublicKeyBuf, SigningKey};

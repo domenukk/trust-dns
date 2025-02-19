@@ -8,9 +8,10 @@
 //! record type definitions
 #![allow(clippy::use_self)]
 
-use std::cmp::Ordering;
-use std::fmt::{self, Display, Formatter};
-use std::str::FromStr;
+use alloc::str::FromStr;
+use alloc::string::ToString;
+use core::cmp::Ordering;
+use core::fmt::{self, Display, Formatter};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -202,7 +203,8 @@ impl FromStr for RecordType {
     /// Convert `&str` to `RecordType`
     ///
     /// ```
-    /// use std::str::FromStr;
+    /// # extern crate alloc;
+    /// use alloc::str::FromStr;
     /// use hickory_proto::rr::record_type::RecordType;
     ///
     /// let var: RecordType = RecordType::from_str("A").unwrap();
@@ -458,6 +460,8 @@ impl Display for RecordType {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::dbg_macro, clippy::print_stdout)]
+
+    use std::println;
 
     use super::*;
 

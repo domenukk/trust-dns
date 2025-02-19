@@ -9,9 +9,14 @@
 
 #![deny(missing_docs)]
 
-use std::cmp::Ordering;
-use std::sync::Arc;
-use std::{fmt, io, sync};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::cmp::Ordering;
+use core::fmt;
+use std::{io, sync};
 
 #[cfg(feature = "backtrace")]
 pub use backtrace::Backtrace as ExtBacktrace;
@@ -271,15 +276,15 @@ pub enum ProtoErrorKind {
 
     /// A utf8 parsing error
     #[error("error parsing utf8 string")]
-    Utf8(#[from] std::str::Utf8Error),
+    Utf8(#[from] alloc::str::Utf8Error),
 
     /// A utf8 parsing error
     #[error("error parsing utf8 string")]
-    FromUtf8(#[from] std::string::FromUtf8Error),
+    FromUtf8(#[from] alloc::string::FromUtf8Error),
 
     /// An int parsing error
     #[error("error parsing int")]
-    ParseInt(#[from] std::num::ParseIntError),
+    ParseInt(#[from] core::num::ParseIntError),
 
     /// A Quinn (Quic) connection error occurred
     #[cfg(feature = "dns-over-quic")]

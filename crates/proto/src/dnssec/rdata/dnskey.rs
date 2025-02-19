@@ -7,7 +7,8 @@
 
 //! public key record data for signing zone records
 
-use std::{fmt, sync::Arc};
+use alloc::{borrow::ToOwned, sync::Arc, vec::Vec};
+use core::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
